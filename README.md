@@ -1,7 +1,8 @@
 # Lunar Roleplay Launcher
 
 Windows launcher for the Lunar Roleplay HogwartsMP server. The player signs in with Discord, the launcher
-checks they hold an allowed role (whitelist or staff), then starts the game through the ArcaneMP launcher with a join link:
+checks they hold an allowed role (whitelist or staff), installs the ArcaneMP build approved by staff, then starts
+the game through the ArcaneMP launcher with a join link:
 
 ```
 arcanemp://<host>:<port>?password=<server password>&ticket=<Discord access token>
@@ -21,10 +22,17 @@ addresses or passwords; those live only in a git-ignored `launcher.json`.
 - Asks Discord only for `identify` (your user ID and name) and `guilds.members.read` (your roles in the
   Lunar Roleplay server). It cannot read messages, servers you are in, or your email.
 - Listens on `127.0.0.1` (your own PC only, not the network) for up to 3 minutes to receive the sign-in.
-- Keeps the Discord token in memory only and passes it to the game when you press **Gioca**. Nothing is
-  written to disk except the game folder you picked (`%LOCALAPPDATA%\LunarLauncher\settings.json`).
+- Keeps the Discord token in memory only and passes it to the game when you press **Gioca**. It is never
+  written to disk.
+- Reads [`client-version.json`](client-version.json) from this repository to learn which ArcaneMP build is
+  approved, downloads that build from MafiaHub's official server (`api.mafiahub.dev`), checks its SHA-256, and
+  extracts only the `client` folder to `%LOCALAPPDATA%\LunarRoleplay\ArcaneMP\client`. The server folders
+  in the same zip are skipped. The launcher never hosts or changes ArcaneMP files.
+- Copies `ArcaneMP_launcher.json` (your Hogwarts Legacy folder) from an existing ArcaneMP install, if any, so
+  you do not have to pick the game again.
 - Reads your public ArcaneMP account ID from `client\logs\ArcaneMP.log` to show it for support. It never
-  opens `account.key`, the private key that identifies you: never share that file with anyone.
+  opens `account.key`, the private key that identifies you: never share that file with anyone. The key lives
+  in `%LOCALAPPDATA%\MafiaHub`, so installs and updates never change your account ID.
 
 ## How it works
 
@@ -32,10 +40,45 @@ addresses or passwords; those live only in a git-ignored `launcher.json`.
    `http://127.0.0.1:<redirectPort>/callback`, where the launcher listens on a raw loopback socket (no
    admin rights needed).
 2. The token is used once against `GET /users/@me/guilds/<guildId>/member` to read the display name and roles.
-3. **Gioca** starts `ArcaneMPLauncher.exe` directly with the link as its argument. It does not rely on the
+3. **Gioca** first makes sure the approved ArcaneMP build is installed (see below), then starts
+   `ArcaneMPLauncher.exe` directly with the link as its argument. It does not rely on the
    `arcanemp://` / `hogwartsmp://` URL handlers, which can point to an outdated exe.
-4. The game folder is found through the `arcanemp`/`hogwartsmp` registry handlers or
-   `Desktop\HogwartsMP\client`; otherwise the player picks `ArcaneMPLauncher.exe` once.
+4. **Ripara** downloads and reinstalls the approved build.
+
+## ArcaneMP version control
+
+Staff decide when players update. The approved build is in [`client-version.json`](client-version.json) on
+`main`; the launcher reads it from `raw.githubusercontent.com` each time **Gioca** is pressed.
+
+| Field | Meaning |
+| --- | --- |
+| `version` | Shown to players, e.g. `1.15.1` |
+| `modId`, `buildId` | The build's IDs in its MafiaHub download URL `https://api.mafiahub.dev/mods/<modId>/builds/<buildId>/download` |
+| `clientFolder` | Folder inside the zip that holds the client, e.g. `ArcaneMP-1.15.1/client` |
+| `sha256`, `size` | Checksum and size in bytes of the zip; a download that does not match is refused |
+
+On **Gioca** the launcher:
+
+1. Reinstalls when the installed build differs from the approved one, or when `ArcaneMPClient.dll` or
+   `ArcaneMPLauncher.exe` no longer match the hashes recorded at install (for example after ArcaneMP updated
+   itself).
+2. Downloads the zip with a progress readout, verifies size and SHA-256, extracts the client folder to a
+   staging folder, then swaps it in. The previous client is kept until the swap succeeds. The game must be closed.
+3. If `client-version.json` cannot be reached, keeps playing on the build already installed.
+
+To approve a new build:
+
+1. Update the game server to the new HogwartsMP/ArcaneMP version first, or at the same time.
+2. Download the build's zip from its MafiaHub URL, then compute its checksum and size:
+   ```powershell
+   Get-FileHash ArcaneMP-x.y.z.zip -Algorithm SHA256   # sha256 (write it in lowercase)
+   (Get-Item ArcaneMP-x.y.z.zip).Length               # size
+   ```
+3. Check the zip's top folder name for `clientFolder`, update `client-version.json`, and push it to `main`.
+   Players get the new build the next time they press **Gioca** (GitHub may cache the file for a few minutes).
+
+ArcaneMP's own launcher also checks MafiaHub for updates on start. If it moves to a newer build, the launcher
+notices the changed files on the next **Gioca** and puts the approved build back.
 
 ## Discord application setup
 

@@ -8,14 +8,14 @@ internal sealed class MainForm : Form
     private readonly Label status = new();
     private readonly Button primary = new();
     private readonly Label gamePath = new();
-    private readonly LinkLabel changeGame = new();
+    private readonly LinkLabel repair = new();
     private readonly Label accountId = new();
     private readonly LinkLabel copyAccount = new();
     private readonly CancellationTokenSource closing = new();
+    private readonly HttpClient http = CreateHttp();
 
     private string? token;
     private DiscordMember? member;
-    private string? gameExe;
     private bool busy;
 
     public MainForm(LauncherConfig config)
@@ -71,10 +71,10 @@ internal sealed class MainForm : Form
         primary.Font = new Font("Segoe UI Semibold", 11f);
         primary.Cursor = Cursors.Hand;
         primary.Margin = new Padding(0, 0, 0, 24);
-        primary.Click += async (_, _) => await OnPrimaryAsync();
+        primary.Click += async (_, _) => await RunAsync(() => member == null || token == null ? SignInAsync() : PlayAsync());
 
-        var gameRow = Row(gamePath, changeGame, "Cambia");
-        changeGame.LinkClicked += (_, _) => PickGame();
+        var gameRow = Row(gamePath, repair, "Ripara");
+        repair.LinkClicked += async (_, _) => await RunAsync(RepairAsync);
         var accountRow = Row(accountId, copyAccount, "Copia");
         copyAccount.LinkClicked += (_, _) => CopyAccount();
 
@@ -116,11 +116,21 @@ internal sealed class MainForm : Form
         return row;
     }
 
+    private static HttpClient CreateHttp()
+    {
+        // Timeouts are per request: a 15 s limit for the version file, a stall limit for the download.
+        var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("LunarLauncher/" + Application.ProductVersion.Split('+')[0]);
+        return client;
+    }
+
     private void RefreshGame()
     {
-        if (!GameLocator.IsValid(gameExe)) gameExe = GameLocator.Find();
-        gamePath.Text = gameExe == null ? "Gioco non trovato" : "Gioco: " + Path.GetDirectoryName(gameExe);
-        var id = AccountLog.Read(gameExe);
+        var installed = ClientInstaller.ReadInstalled();
+        gamePath.Text = installed == null ? "ArcaneMP non ancora installato" : "ArcaneMP " + installed.Version;
+        repair.Visible = installed != null;
+        var existing = GameLocator.FindExistingClient();
+        var id = AccountLog.Read(ClientInstaller.ExePath) ?? (existing == null ? null : AccountLog.Read(Path.Combine(existing, GameLocator.ExeName)));
         accountId.Text = id == null ? "ID account: avvia il gioco una volta per generarlo" : "ID account: " + id;
         accountId.Tag = id;
         copyAccount.Visible = id != null;
@@ -135,14 +145,14 @@ internal sealed class MainForm : Form
         status.Text = message ?? (member == null ? "Non hai ancora effettuato l'accesso." : $"Connesso come {member.DisplayName}");
     }
 
-    private async Task OnPrimaryAsync()
+    private async Task RunAsync(Func<Task> action)
     {
         if (busy) return;
         busy = true;
+        Render();
         try
         {
-            if (member == null || token == null) await SignInAsync();
-            else Play();
+            await action();
         }
         catch (LauncherException error)
         {
@@ -155,6 +165,10 @@ internal sealed class MainForm : Form
             busy = false;
             Render("Errore imprevisto: " + error.Message, error: true);
             return;
+        }
+        catch (OperationCanceledException)
+        {
+            return; // The window is closing.
         }
         busy = false;
         Render();
@@ -176,17 +190,17 @@ internal sealed class MainForm : Form
         member = found;
     }
 
-    private void Play()
+    private async Task PlayAsync()
     {
-        if (!GameLocator.IsValid(gameExe) && !PickGame()) throw new LauncherException("Seleziona ArcaneMPLauncher.exe per avviare il gioco.");
+        await EnsureClientAsync(force: false);
         var link = GameLink.Build(config, token!);
         try
         {
             // Started directly rather than through the arcanemp:// handler, which may be stale on some PCs.
-            Process.Start(new ProcessStartInfo(gameExe!)
+            Process.Start(new ProcessStartInfo(ClientInstaller.ExePath)
             {
                 Arguments = "\"" + link + "\"",
-                WorkingDirectory = Path.GetDirectoryName(gameExe!)!,
+                WorkingDirectory = ClientInstaller.ClientDir,
                 UseShellExecute = false,
             });
         }
@@ -198,21 +212,33 @@ internal sealed class MainForm : Form
         WindowState = FormWindowState.Minimized;
     }
 
-    private bool PickGame()
+    private async Task RepairAsync()
     {
-        using var dialog = new OpenFileDialog
-        {
-            Title = "Seleziona ArcaneMPLauncher.exe",
-            Filter = "ArcaneMP launcher|" + GameLocator.ExeName,
-            FileName = GameLocator.ExeName,
-            InitialDirectory = gameExe != null ? Path.GetDirectoryName(gameExe) : Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-        };
-        if (dialog.ShowDialog(this) != DialogResult.OK || !GameLocator.IsValid(dialog.FileName)) return false;
-        gameExe = dialog.FileName;
-        try { GameLocator.Save(gameExe); } catch (Exception) { /* Remembering the path is a convenience only. */ }
-        RefreshGame();
-        return true;
+        await EnsureClientAsync(force: true);
     }
+
+    /// <summary>Installs the approved ArcaneMP build when it is missing, outdated or changed.</summary>
+    private async Task EnsureClientAsync(bool force)
+    {
+        Render("Controllo della versione di ArcaneMP…");
+        ClientManifest manifest;
+        try
+        {
+            manifest = await ClientManifest.FetchAsync(http, closing.Token);
+        }
+        catch (LauncherException) when (!force)
+        {
+            // Version file unreachable: keep playing on the build already installed, if it is intact.
+            if (await Task.Run(IsInstalledIntact)) return;
+            throw;
+        }
+        if (!force && await Task.Run(() => ClientInstaller.IsCurrent(manifest))) return;
+        var progress = new Progress<string>(text => Render(text));
+        await Task.Run(() => ClientInstaller.InstallAsync(http, manifest, progress, closing.Token));
+        RefreshGame();
+    }
+
+    private static bool IsInstalledIntact() => ClientInstaller.ReadInstalled() is { } installed && ClientInstaller.IsIntact(installed);
 
     private void CopyAccount()
     {
@@ -223,7 +249,11 @@ internal sealed class MainForm : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) closing.Dispose();
+        if (disposing)
+        {
+            closing.Dispose();
+            http.Dispose();
+        }
         base.Dispose(disposing);
     }
 }
