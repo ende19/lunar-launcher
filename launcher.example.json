@@ -1,0 +1,10 @@
+{
+  "clientId": "000000000000000000",
+  "guildId": "000000000000000000",
+  "roleIds": ["000000000000000000"],
+  "serverHost": "127.0.0.1",
+  "serverPort": 27015,
+  "serverPassword": "",
+  "redirectPort": 53134,
+  "authFlow": "pkce"
+}

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>LunarLauncher</AssemblyName>
+    <RootNamespace>LunarLauncher</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Version>0.1.0</Version>
+    <Product>Lunar Roleplay Launcher</Product>
+  </PropertyGroup>
+
+  <!-- The real launcher.json (repo root, git-ignored) is embedded so players get a single exe.
+       A launcher.json next to the exe still overrides it. -->
+  <ItemGroup Condition="Exists('..\..\launcher.json')">
+    <EmbeddedResource Include="..\..\launcher.json" LogicalName="launcher.json" />
+  </ItemGroup>
+
+</Project>

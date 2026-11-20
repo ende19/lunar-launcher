@@ -1,0 +1,8 @@
+bin/
+obj/
+publish/
+.vs/
+*.user
+
+# Real config holds the server address and password; it is embedded at build time, never committed.
+launcher.json
