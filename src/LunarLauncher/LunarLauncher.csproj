@@ -9,13 +9,21 @@
     <AssemblyName>LunarLauncher</AssemblyName>
     <RootNamespace>LunarLauncher</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>0.3.1</Version>
+    <Version>0.4.0</Version>
     <Product>Lunar Roleplay Launcher</Product>
+    <ApplicationIcon>Assets\lunar.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!-- Official white Discord logo (discord.com/branding), rendered from its SVG; used unaltered on the sign-in button. -->
   <ItemGroup>
     <EmbeddedResource Include="Assets\discord-logo-white.png" LogicalName="discord-logo-white.png" />
+  </ItemGroup>
+
+  <!-- Lunar Roleplay logo kit and the Marcellus font (SIL Open Font License, see Assets\Marcellus-OFL.txt). -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\lunar-logo.png" LogicalName="lunar-logo.png" />
+    <EmbeddedResource Include="Assets\lunar-icon.png" LogicalName="lunar-icon.png" />
+    <EmbeddedResource Include="Assets\Marcellus-Regular.ttf" LogicalName="Marcellus-Regular.ttf" />
   </ItemGroup>
 
   <!-- The real launcher.json (repo root, git-ignored) is embedded so players get a single exe.

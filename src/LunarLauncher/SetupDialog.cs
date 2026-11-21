@@ -1,112 +1,131 @@
+using System.Drawing.Drawing2D;
+using System.Drawing.Text;
+
 namespace LunarLauncher;
 
 /// <summary>Small setup popup: asks where to install ArcaneMP, defaulting to the current install folder.</summary>
-internal sealed class SetupDialog : Form
+internal sealed class SetupDialog : FramelessForm
 {
     private const string SubfolderName = "Lunar Roleplay";
+    private const int W = 540, H = 300;
+    private readonly string version;
     private readonly long required;
+    private readonly Panel field = new();
     private readonly TextBox folder = new();
+    private readonly Label info = new();
+    private readonly Label folderLabel = new();
     private readonly Label space = new();
     private readonly Label problem = new();
-    private readonly Button install = new();
+    private readonly LunarButton browse = new() { Text = "Sfoglia…", Secondary = true };
+    private readonly LunarButton cancel = new() { Text = "Annulla", Secondary = true };
+    private readonly LunarButton install = new() { Text = "Installa" };
+    private readonly WindowButton close = new(WindowButton.Kind.Close);
 
     public string SelectedFolder => Path.GetFullPath(folder.Text.Trim());
 
     public SetupDialog(string version, long requiredBytes, string defaultFolder)
     {
+        this.version = version;
         required = requiredBytes;
         Text = "Installa ArcaneMP";
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.CenterParent;
-        AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(480, 250);
-        BackColor = Theme.Bg;
+        BackColor = Theme.Night;
         ForeColor = Theme.Text;
-        Font = new Font("Segoe UI", 10f);
+        Font = new Font("Segoe UI", 9.5f);
+        KeyPreview = true;
 
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(24, 20, 24, 20), ColumnCount = 1, BackColor = Theme.Bg };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        Label(info, "Verrà scaricato dal server ufficiale MafiaHub e verificato prima dell'installazione.", Theme.TextSecondary, 9.5f);
+        Label(folderLabel, "Cartella di installazione", Theme.Text, 9.5f, bold: true);
+        Label(space, "", Theme.TextSecondary, 9f);
+        Label(problem, "", Theme.Danger, 9f);
 
-        var title = new Label { Text = "Installa ArcaneMP " + version, AutoSize = true, Font = new Font("Segoe UI Semibold", 14f), Margin = new Padding(0) };
-        var info = new Label
-        {
-            Text = "Verrà scaricato dal server ufficiale MafiaHub e verificato prima dell'installazione.",
-            AutoSize = true, MaximumSize = new Size(430, 0), ForeColor = Theme.TextSecondary, Font = new Font("Segoe UI", 9f),
-            Margin = new Padding(0, 4, 0, 16),
-        };
-        var folderLabel = new Label { Text = "Cartella di installazione", AutoSize = true, Font = new Font("Segoe UI", 9f), Margin = new Padding(0, 0, 0, 4) };
-
-        var row = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 0, 0, 6) };
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        folder.Dock = DockStyle.Fill;
-        folder.BorderStyle = BorderStyle.FixedSingle;
+        field.BackColor = Theme.Surface;
+        field.Paint += (_, e) => ControlPaint.DrawBorder(e.Graphics, field.ClientRectangle, folder.Focused ? Theme.PrimaryHover : Theme.Border, ButtonBorderStyle.Solid);
+        folder.BorderStyle = BorderStyle.None;
         folder.BackColor = Theme.Surface;
         folder.ForeColor = Theme.Text;
-        folder.Margin = new Padding(0, 1, 8, 0);
+        folder.Font = new Font("Segoe UI", 10f);
         folder.Text = defaultFolder;
         folder.TextChanged += (_, _) => CheckInput();
-        var browse = SecondaryButton("Sfoglia…");
-        browse.Margin = new Padding(0);
+        folder.GotFocus += (_, _) => field.Invalidate();
+        folder.LostFocus += (_, _) => field.Invalidate();
+        field.Controls.Add(folder);
+
         browse.Click += (_, _) => Browse();
-        row.Controls.Add(folder, 0, 0);
-        row.Controls.Add(browse, 1, 0);
-
-        space.AutoSize = true;
-        space.ForeColor = Theme.TextSecondary;
-        space.Font = new Font("Segoe UI", 9f);
-        space.Margin = new Padding(0, 0, 0, 2);
-        problem.AutoSize = true;
-        problem.MaximumSize = new Size(430, 0);
-        problem.ForeColor = Theme.Danger;
-        problem.Font = new Font("Segoe UI", 9f);
-        problem.Margin = new Padding(0);
-
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Margin = new Padding(0, 12, 0, 0) };
-        install.Text = "Installa";
-        install.Size = new Size(120, 36);
-        install.FlatStyle = FlatStyle.Flat;
-        install.FlatAppearance.BorderSize = 0;
-        install.FlatAppearance.MouseOverBackColor = Theme.PrimaryHover;
-        install.FlatAppearance.MouseDownBackColor = Theme.PrimaryDark;
-        install.ForeColor = Color.White;
-        install.Font = new Font("Segoe UI Semibold", 10f);
-        install.Cursor = Cursors.Hand;
-        install.Margin = new Padding(8, 0, 0, 0);
+        cancel.Click += (_, _) => DialogResult = DialogResult.Cancel;
+        close.Click += (_, _) => DialogResult = DialogResult.Cancel;
         install.Click += (_, _) => { if (CheckInput()) DialogResult = DialogResult.OK; };
-        var cancel = SecondaryButton("Annulla");
-        cancel.Size = new Size(100, 36);
-        cancel.Margin = new Padding(0);
-        cancel.DialogResult = DialogResult.Cancel;
-        buttons.Controls.Add(install);
-        buttons.Controls.Add(cancel);
-        AcceptButton = install;
-        CancelButton = cancel;
+        KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Escape) DialogResult = DialogResult.Cancel;
+            else if (e.KeyCode == Keys.Enter && install.Enabled && CheckInput()) DialogResult = DialogResult.OK;
+        };
 
-        layout.Controls.Add(title);
-        layout.Controls.Add(info);
-        layout.Controls.Add(folderLabel);
-        layout.Controls.Add(row);
-        layout.Controls.Add(space);
-        layout.Controls.Add(problem);
-        layout.Controls.Add(buttons);
-        Controls.Add(layout);
+        Controls.AddRange([info, folderLabel, field, browse, space, problem, cancel, install, close]);
+        Draggable(this);
+        Draggable(info);
+        // Caret at the end instead of the whole path selected.
+        Shown += (_, _) => folder.Select(folder.TextLength, 0);
+        ApplyScale();
         CheckInput();
     }
 
-    private static Button SecondaryButton(string text)
+    private static void Label(Label label, string text, Color color, float size, bool bold = false)
     {
-        var button = new Button
+        label.Text = text;
+        label.AutoSize = true;
+        label.BackColor = Color.Transparent;
+        label.ForeColor = color;
+        label.Font = new Font(bold ? "Segoe UI Semibold" : "Segoe UI", size);
+    }
+
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        ApplyScale();
+    }
+
+    private void ApplyScale()
+    {
+        ClientSize = new Size(S(W), S(H));
+        close.Bounds = new Rectangle(S(W - 46), 0, S(46), S(36));
+        info.MaximumSize = new Size(S(W - 56), 0);
+        info.Location = new Point(S(26), S(72));
+        folderLabel.Location = new Point(S(26), S(118));
+        field.Bounds = new Rectangle(S(28), S(144), S(W - 56 - 130), S(38));
+        folder.Bounds = new Rectangle(S(10), (field.Height - folder.PreferredHeight) / 2, field.Width - S(20), folder.PreferredHeight);
+        browse.Bounds = new Rectangle(field.Right + S(10), field.Top, S(W - 28) - field.Right - S(10), field.Height);
+        space.Location = new Point(S(26), S(190));
+        problem.MaximumSize = new Size(S(W - 56), 0);
+        problem.Location = new Point(S(26), S(210));
+        install.Bounds = new Rectangle(S(W - 28 - 150), S(H - 28 - 46), S(150), S(46));
+        cancel.Bounds = new Rectangle(install.Left - S(12) - S(120), install.Top, S(120), S(46));
+        Invalidate();
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+        using (var sky = new LinearGradientBrush(ClientRectangle, Theme.NightTop, Theme.Night, LinearGradientMode.Vertical))
         {
-            Text = text, AutoSize = true, FlatStyle = FlatStyle.Flat, BackColor = Theme.Surface, ForeColor = Theme.Text,
-            Font = new Font("Segoe UI", 9.5f), Cursor = Cursors.Hand,
-        };
-        button.FlatAppearance.BorderColor = Theme.Border;
-        button.FlatAppearance.MouseOverBackColor = Theme.Border;
-        return button;
+            g.FillRectangle(sky, ClientRectangle);
+        }
+        using (var path = new GraphicsPath())
+        {
+            var glow = new RectangleF(S(-80), S(-160), S(420), S(320));
+            path.AddEllipse(glow);
+            using var brush = new PathGradientBrush(path) { CenterColor = Color.FromArgb(90, 124, 58, 237), SurroundColors = [Color.Transparent] };
+            g.FillEllipse(brush, glow);
+        }
+        using (var title = new Font(Theme.Display, 16f))
+        {
+            Theme.DrawSpaced(g, "Installa ArcaneMP " + version, title, Theme.Gold, new PointF(S(26), S(28)), S(1));
+        }
+        using var edge = new Pen(Theme.Border);
+        g.DrawRectangle(edge, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
     }
 
     private void Browse()
@@ -151,7 +170,6 @@ internal sealed class SetupDialog : Form
         problem.Text = error ?? "";
         problem.Visible = error != null;
         install.Enabled = error == null;
-        install.BackColor = error == null ? Theme.Primary : Theme.Border;
         return error == null;
     }
 }

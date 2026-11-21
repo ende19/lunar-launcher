@@ -1,15 +1,24 @@
 using System.Diagnostics;
+using System.Drawing.Drawing2D;
+using System.Drawing.Text;
 
 namespace LunarLauncher;
 
-internal sealed class MainForm : Form
+internal sealed class MainForm : FramelessForm
 {
     private enum ClientState { Checking, NotInstalled, Outdated, Ready }
 
+    // Layout, in logical pixels at 100 % scaling.
+    private const int W = 960, H = 560, TitleBar = 56;
+    private static readonly Rectangle LogoBox = new(300, 52, 360, 308);
+    private static readonly Rectangle CardBox = new(32, 400, 896, 124);
+
+    private static readonly Image Logo = Theme.LoadImage("lunar-logo.png");
+    private static readonly Image Mark = Theme.LoadImage("lunar-icon.png");
+
     private readonly LauncherConfig config;
     private readonly Label status = new();
-    private readonly Button primary = new();
-    private readonly Panel progressPanel = new();
+    private readonly LunarButton primary = new();
     private readonly ProgressStrip progressBar = new();
     private readonly Label progressDetail = new();
     private readonly Label gamePath = new();
@@ -19,9 +28,12 @@ internal sealed class MainForm : Form
     private readonly LinkLabel signOut = new();
     private readonly Label accountId = new();
     private readonly LinkLabel copyAccount = new();
+    private readonly WindowButton minimize = new(WindowButton.Kind.Minimize);
+    private readonly WindowButton close = new(WindowButton.Kind.Close);
     private readonly ToolTip tips = new();
     private readonly CancellationTokenSource closing = new();
     private readonly HttpClient http = CreateHttp();
+    private Bitmap? backdrop;
 
     private DiscordSession? session;
     private DiscordMember? member;
@@ -36,119 +48,43 @@ internal sealed class MainForm : Form
     {
         this.config = config;
         Text = "Lunar Roleplay";
-        FormBorderStyle = FormBorderStyle.FixedSingle;
-        MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(500, 460);
-        BackColor = Theme.Bg;
+        BackColor = Theme.Night;
         ForeColor = Theme.Text;
-        Font = new Font("Segoe UI", 10f);
+        Font = new Font("Segoe UI", 9.5f);
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
 
-        var layout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            Padding = new Padding(32, 28, 32, 24),
-            ColumnCount = 1,
-            BackColor = Theme.Bg,
-        };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        Style(status, 11.5f, Theme.Text, bold: true);
+        status.AutoEllipsis = true;
+        Style(progressDetail, 9f, Theme.TextSecondary);
+        Style(gamePath, 9f, Theme.TextSecondary);
+        Style(accountId, 9f, Theme.TextSecondary);
+        Style(discordName, 10f, Theme.Text, bold: true);
+        StyleLink(repair, "Ripara");
+        StyleLink(copyAccount, "Copia");
+        StyleLink(signOut, "Esci");
+        progressBar.Visible = false;
+        progressDetail.Visible = false;
+        signIn.AutoSize = false;
 
-        var title = new Label
-        {
-            Text = "Lunar Roleplay", AutoSize = true, ForeColor = Theme.Text,
-            Font = new Font("Segoe UI Semibold", 22f), Margin = new Padding(0),
-        };
-
-        // Top right: "Accedi con Discord" when signed out, the Discord name and "Esci" when signed in.
-        signIn.AutoSize = true;
-        signIn.Margin = new Padding(0, 6, 0, 0);
-        signIn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        signIn.Click += async (_, _) => await RunAsync(SignInAsync);
-        discordName.AutoSize = true;
-        discordName.ForeColor = Theme.Text;
-        discordName.Font = new Font("Segoe UI Semibold", 9.5f);
-        discordName.Margin = new Padding(0, 8, 0, 0);
-        discordName.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        signOut.Text = "Esci";
-        signOut.AutoSize = true;
-        signOut.Font = new Font("Segoe UI", 9f);
-        signOut.LinkColor = Theme.PrimaryHover;
-        signOut.ActiveLinkColor = Theme.Text;
-        signOut.LinkBehavior = LinkBehavior.HoverUnderline;
-        signOut.Margin = new Padding(0, 2, 0, 0);
-        signOut.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        signOut.LinkClicked += (_, _) => SignOut();
-        var account = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Margin = new Padding(0), Anchor = AnchorStyles.Top | AnchorStyles.Right };
-        account.Controls.Add(signIn);
-        account.Controls.Add(discordName);
-        account.Controls.Add(signOut);
-
-        var header = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Margin = new Padding(0) };
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        header.Controls.Add(title, 0, 0);
-        header.Controls.Add(account, 1, 0);
-        var subtitle = new Label
-        {
-            Text = "Server roleplay italiano di Hogwarts Legacy.", AutoSize = true,
-            ForeColor = Theme.TextSecondary, Margin = new Padding(2, 2, 0, 24),
-        };
-
-        var card = new Panel { Dock = DockStyle.Top, Height = 64, BackColor = Theme.Surface, Margin = new Padding(0, 0, 0, 12), Padding = new Padding(16, 0, 16, 0) };
-        card.Paint += (_, e) => ControlPaint.DrawBorder(e.Graphics, card.ClientRectangle, Theme.Border, ButtonBorderStyle.Solid);
-        status.Dock = DockStyle.Fill;
-        status.TextAlign = ContentAlignment.MiddleLeft;
-        status.ForeColor = Theme.TextSecondary;
-        status.BackColor = Theme.Surface;
-        card.Controls.Add(status);
-
-        // Shown only while downloading or installing.
-        progressPanel.Dock = DockStyle.Top;
-        progressPanel.Height = 34;
-        progressPanel.Margin = new Padding(0, 0, 0, 12);
-        progressPanel.Visible = false;
-        progressBar.Dock = DockStyle.Top;
-        progressDetail.Dock = DockStyle.Bottom;
-        progressDetail.Height = 20;
-        progressDetail.ForeColor = Theme.TextSecondary;
-        progressDetail.Font = new Font("Segoe UI", 9f);
-        progressDetail.TextAlign = ContentAlignment.BottomLeft;
-        progressPanel.Controls.Add(progressDetail);
-        progressPanel.Controls.Add(progressBar);
-
-        primary.Dock = DockStyle.Top;
-        primary.Height = 46;
-        primary.FlatStyle = FlatStyle.Flat;
-        primary.FlatAppearance.BorderSize = 0;
-        primary.FlatAppearance.MouseOverBackColor = Theme.PrimaryHover;
-        primary.FlatAppearance.MouseDownBackColor = Theme.PrimaryDark;
-        primary.BackColor = Theme.Primary;
-        primary.ForeColor = Color.White;
-        primary.Font = new Font("Segoe UI Semibold", 11f);
-        primary.Cursor = Cursors.Hand;
-        primary.Margin = new Padding(0, 0, 0, 24);
         primary.Click += async (_, _) => await RunAsync(state switch
         {
             ClientState.NotInstalled => InstallAsync,
             ClientState.Outdated => UpdateAsync,
             _ => PlayAsync,
         });
-
-        var gameRow = Row(gamePath, repair, "Ripara");
+        signIn.Click += async (_, _) => await RunAsync(SignInAsync);
+        signOut.LinkClicked += (_, _) => SignOut();
         repair.LinkClicked += async (_, _) => await RunAsync(RepairAsync);
-        var accountRow = Row(accountId, copyAccount, "Copia");
         copyAccount.LinkClicked += (_, _) => CopyAccount();
+        minimize.Click += (_, _) => WindowState = FormWindowState.Minimized;
+        close.Click += (_, _) => Close();
 
-        layout.Controls.Add(header);
-        layout.Controls.Add(subtitle);
-        layout.Controls.Add(card);
-        layout.Controls.Add(progressPanel);
-        layout.Controls.Add(primary);
-        layout.Controls.Add(gameRow);
-        layout.Controls.Add(accountRow);
-        Controls.Add(layout);
+        Controls.AddRange([status, progressBar, progressDetail, gamePath, repair, accountId, copyAccount,
+            primary, signIn, discordName, signOut, minimize, close]);
+        Draggable(this);
+        Draggable(status);
+        Draggable(progressDetail);
 
         // Refresh the account ID when the player comes back from the game, which may have just created it.
         Activated += (_, _) => RefreshGame();
@@ -158,31 +94,183 @@ internal sealed class MainForm : Form
             await CheckAsync();
         });
         FormClosing += OnClosing;
+        ApplyScale();
         RefreshGame();
         Render();
     }
 
-    private static Control Row(Label label, LinkLabel link, string linkText)
+    private static void Style(Label label, float size, Color color, bool bold = false)
     {
-        var row = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 0, 0, 6) };
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         label.AutoSize = true;
-        label.AutoEllipsis = true;
-        label.ForeColor = Theme.TextSecondary;
-        label.Font = new Font("Segoe UI", 9f);
-        label.Margin = new Padding(0, 2, 8, 0);
-        label.MaximumSize = new Size(300, 0);
-        link.Text = linkText;
+        label.BackColor = Color.Transparent;
+        label.ForeColor = color;
+        label.Font = new Font(bold ? "Segoe UI Semibold" : "Segoe UI", size);
+    }
+
+    private static void StyleLink(LinkLabel link, string text)
+    {
+        link.Text = text;
         link.AutoSize = true;
-        link.Font = new Font("Segoe UI", 9f);
-        link.LinkColor = Theme.PrimaryHover;
+        link.BackColor = Color.Transparent;
+        link.Font = new Font("Segoe UI Semibold", 9f);
+        link.LinkColor = Theme.Gold;
         link.ActiveLinkColor = Theme.Text;
+        link.DisabledLinkColor = Theme.Muted;
         link.LinkBehavior = LinkBehavior.HoverUnderline;
-        link.Margin = new Padding(0, 2, 0, 0);
-        row.Controls.Add(label, 0, 0);
-        row.Controls.Add(link, 1, 0);
-        return row;
+    }
+
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        ApplyScale();
+    }
+
+    /// <summary>Sizes the window and places every control for the current monitor scaling.</summary>
+    private void ApplyScale()
+    {
+        ClientSize = new Size(S(W), S(H));
+        backdrop?.Dispose();
+        backdrop = null;
+        close.Bounds = new Rectangle(S(W - 46), 0, S(46), S(36));
+        minimize.Bounds = new Rectangle(S(W - 92), 0, S(46), S(36));
+        status.MaximumSize = new Size(S(560), 0);
+        status.Location = new Point(S(CardBox.X + 26), S(CardBox.Y + 22));
+        progressBar.Bounds = new Rectangle(S(CardBox.X + 26), S(CardBox.Y + 62), S(560), S(8));
+        progressDetail.Location = new Point(S(CardBox.X + 24), S(CardBox.Y + 78));
+        gamePath.Location = new Point(S(CardBox.X + 24), S(CardBox.Y + 58));
+        accountId.Location = new Point(S(CardBox.X + 24), S(CardBox.Y + 82));
+        primary.Bounds = new Rectangle(S(CardBox.Right - 26 - 250), S(CardBox.Y + 30), S(250), S(64));
+        PlaceInline();
+        Invalidate();
+    }
+
+    /// <summary>Places the size-dependent pieces: links after their labels, and the Discord area top right.</summary>
+    private void PlaceInline()
+    {
+        repair.Location = new Point(gamePath.Right + S(6), gamePath.Top);
+        copyAccount.Location = new Point(accountId.Right + S(6), accountId.Top);
+        var right = minimize.Left - S(14);
+        signIn.Size = signIn.GetPreferredSize(Size.Empty);
+        signIn.Location = new Point(right - signIn.Width, (S(TitleBar) - signIn.Height) / 2);
+        signOut.Location = new Point(right - signOut.Width, (S(TitleBar) - signOut.Height) / 2);
+        discordName.Location = new Point(signOut.Left - S(10) - discordName.Width, (S(TitleBar) - discordName.Height) / 2);
+        Invalidate(new Rectangle(0, 0, ClientSize.Width, S(TitleBar)));
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        if (backdrop == null || backdrop.Size != ClientSize)
+        {
+            backdrop?.Dispose();
+            backdrop = PaintBackdrop();
+        }
+        e.Graphics.DrawImageUnscaled(backdrop, 0, 0);
+        // The signed-in chip is drawn live because the name changes.
+        if (discordName.Visible)
+        {
+            var chip = RectangleF.FromLTRB(discordName.Left - S(14), S(12), signOut.Right + S(14), S(TitleBar - 12));
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var path = Theme.Rounded(chip, chip.Height / 2);
+            using var fill = new SolidBrush(Color.FromArgb(150, 28, 19, 52));
+            using var edge = new Pen(Color.FromArgb(110, 167, 139, 250));
+            e.Graphics.FillPath(fill, path);
+            e.Graphics.DrawPath(edge, path);
+        }
+    }
+
+    /// <summary>Night sky, violet glow behind the logo, stars, the logo, the title and the bottom card.</summary>
+    private Bitmap PaintBackdrop()
+    {
+        var bitmap = new Bitmap(Math.Max(1, ClientSize.Width), Math.Max(1, ClientSize.Height));
+        using var g = Graphics.FromImage(bitmap);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+        var full = new Rectangle(Point.Empty, bitmap.Size);
+
+        using (var sky = new LinearGradientBrush(full, Theme.NightTop, Theme.Night, LinearGradientMode.Vertical))
+        {
+            g.FillRectangle(sky, full);
+        }
+        Glow(g, new RectangleF(S(140), S(-120), S(680), S(620)), Color.FromArgb(120, 124, 58, 237));
+        Glow(g, new RectangleF(S(-200), S(300), S(520), S(420)), Color.FromArgb(50, 124, 58, 237));
+        Glow(g, new RectangleF(S(700), S(-160), S(460), S(380)), Color.FromArgb(40, 212, 154, 69));
+
+        // Stars: fixed seed so the sky looks the same on every start.
+        var random = new Random(1987);
+        for (var i = 0; i < 170; i++)
+        {
+            var x = random.Next(W) * UiScale;
+            var y = random.Next(H) * UiScale;
+            var size = (random.NextDouble() < 0.12 ? 2.2f : 1.2f) * UiScale;
+            var alpha = random.Next(50, 200);
+            var color = random.NextDouble() < 0.25 ? Color.FromArgb(alpha, Theme.Gold) : Color.FromArgb(alpha, 230, 225, 255);
+            using var star = new SolidBrush(color);
+            g.FillEllipse(star, x, y, size, size);
+        }
+
+        g.DrawImage(Logo, Fit(Logo.Size, Scaled(LogoBox)));
+
+        using (var tagline = new Font(Theme.Display, 12.5f))
+        {
+            const string text = "Server roleplay italiano di Hogwarts Legacy";
+            var size = Theme.MeasureSpaced(g, text, tagline, S(1));
+            Theme.DrawSpaced(g, text, tagline, Theme.TextSecondary, new PointF((bitmap.Width - size.Width) / 2, S(364)), S(1));
+        }
+
+        // Title bar: the Lunar mark and the name in spaced capitals.
+        g.DrawImage(Mark, new Rectangle(S(18), S(14), S(28), S(28)));
+        using (var title = new Font(Theme.Display, 12f))
+        {
+            Theme.DrawSpaced(g, "LUNAR ROLEPLAY", title, Theme.Gold, new PointF(S(52), S(19)), S(3));
+        }
+
+        // Bottom card, frosted over the sky.
+        var card = Scaled(CardBox);
+        using (var path = Theme.Rounded(card, S(18)))
+        using (var fill = new SolidBrush(Theme.Card))
+        using (var edge = new Pen(Color.FromArgb(70, 167, 139, 250)))
+        {
+            g.FillPath(fill, path);
+            g.DrawPath(edge, path);
+        }
+        using (var shine = new LinearGradientBrush(new RectangleF(card.X, card.Y, card.Width, 2), Color.Transparent, Color.FromArgb(150, Theme.Gold), 0f))
+        {
+            var blend = new ColorBlend
+            {
+                Colors = [Color.Transparent, Color.FromArgb(150, Theme.Gold), Color.Transparent],
+                Positions = [0f, 0.5f, 1f],
+            };
+            shine.InterpolationColors = blend;
+            g.FillRectangle(shine, card.X + S(40), card.Y, card.Width - S(80), Math.Max(1, S(1)));
+        }
+
+        using (var small = new Font("Segoe UI", 8.5f))
+        using (var muted = new SolidBrush(Theme.Muted))
+        {
+            var version = "Launcher v" + Application.ProductVersion.Split('+')[0];
+            g.DrawString(version, small, muted, S(CardBox.X + 4), S(H - 28));
+        }
+        return bitmap;
+    }
+
+    private static void Glow(Graphics g, RectangleF area, Color color)
+    {
+        using var path = new GraphicsPath();
+        path.AddEllipse(area);
+        using var brush = new PathGradientBrush(path) { CenterColor = color, SurroundColors = [Color.Transparent] };
+        g.FillEllipse(brush, area);
+    }
+
+    private Rectangle Scaled(Rectangle r) => new(S(r.X), S(r.Y), S(r.Width), S(r.Height));
+
+    private static Rectangle Fit(Size image, Rectangle box)
+    {
+        var ratio = Math.Min((double)box.Width / image.Width, (double)box.Height / image.Height);
+        var w = (int)(image.Width * ratio);
+        var h = (int)(image.Height * ratio);
+        return new Rectangle(box.X + (box.Width - w) / 2, box.Y + (box.Height - h) / 2, w, h);
     }
 
     private static HttpClient CreateHttp()
@@ -204,6 +292,7 @@ internal sealed class MainForm : Form
         accountId.Text = id == null ? "ID account: avvia il gioco una volta per generarlo" : "ID account: " + id;
         accountId.Tag = id;
         copyAccount.Visible = id != null;
+        PlaceInline();
     }
 
     private void Render(string? message = null, bool error = false)
@@ -217,7 +306,6 @@ internal sealed class MainForm : Form
         };
         // Everything starts with the Discord sign-in: the main button stays locked until it succeeds.
         primary.Enabled = !busy && allowed;
-        primary.BackColor = primary.Enabled ? Theme.Primary : Theme.Border;
         signIn.Visible = session == null;
         signIn.Enabled = !busy;
         discordName.Visible = session != null;
@@ -225,6 +313,12 @@ internal sealed class MainForm : Form
         signOut.Visible = session != null;
         signOut.Enabled = !busy;
         repair.Enabled = !busy && allowed;
+        // While installing, the progress bar takes the place of the two info lines.
+        progressBar.Visible = progressDetail.Visible = installing;
+        gamePath.Visible = accountId.Visible = !installing;
+        copyAccount.Visible = !installing && accountId.Tag != null;
+        repair.Visible = !installing && ClientInstaller.ReadInstalled() != null;
+        PlaceInline();
         status.ForeColor = error ? Theme.Danger : allowed ? Theme.Text : Theme.TextSecondary;
         status.Text = message ??
             (session == null ? "Accedi con Discord per iniziare."
@@ -340,8 +434,7 @@ internal sealed class MainForm : Form
         installing = true;
         progressBar.Value = 0;
         progressDetail.Text = "";
-        progressPanel.Visible = true;
-        repair.Visible = false;
+        Render();
         try
         {
             var progress = new Progress<InstallProgress>(ShowProgress);
@@ -350,7 +443,7 @@ internal sealed class MainForm : Form
         finally
         {
             installing = false;
-            progressPanel.Visible = false;
+            Render();
             await UpdateStateAsync();
         }
         notice = $"ArcaneMP {manifest.Version} installato. Premi Avvia per giocare.";
@@ -523,6 +616,7 @@ internal sealed class MainForm : Form
             closing.Dispose();
             http.Dispose();
             tips.Dispose();
+            backdrop?.Dispose();
         }
         base.Dispose(disposing);
     }

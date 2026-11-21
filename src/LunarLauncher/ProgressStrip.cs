@@ -1,15 +1,18 @@
 using System.ComponentModel;
+using System.Drawing.Drawing2D;
 
 namespace LunarLauncher;
 
-/// <summary>Flat progress bar in the Lunar colours (the stock ProgressBar ignores custom colours).</summary>
+/// <summary>Rounded progress bar: a violet-to-gold fill on a dark track.</summary>
 internal sealed class ProgressStrip : Control
 {
     private double value;
 
     public ProgressStrip()
     {
-        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint |
+                 ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+        BackColor = Color.Transparent;
         Height = 8;
     }
 
@@ -29,10 +32,20 @@ internal sealed class ProgressStrip : Control
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        using var track = new SolidBrush(Theme.Surface);
-        using var fill = new SolidBrush(Theme.Primary);
-        e.Graphics.FillRectangle(track, ClientRectangle);
-        var width = (int)Math.Round(ClientSize.Width * value);
-        if (width > 0) e.Graphics.FillRectangle(fill, 0, 0, width, ClientSize.Height);
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        var radius = Height / 2f;
+        using (var track = Theme.Rounded(new RectangleF(0, 0, Width - 1, Height - 1), radius))
+        using (var brush = new SolidBrush(Color.FromArgb(160, 8, 5, 18)))
+        using (var edge = new Pen(Color.FromArgb(80, 167, 139, 250)))
+        {
+            g.FillPath(brush, track);
+            g.DrawPath(edge, track);
+        }
+        var width = (float)((Width - 1) * value);
+        if (width < Height) return;
+        using var fill = Theme.Rounded(new RectangleF(0, 0, width, Height - 1), radius);
+        using var gradient = new LinearGradientBrush(new RectangleF(0, 0, Math.Max(1, Width), Height), Theme.Primary, Theme.Gold, LinearGradientMode.Horizontal);
+        g.FillPath(gradient, fill);
     }
 }
