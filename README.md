@@ -146,6 +146,15 @@ SmartScreen warns on first launch until it is code-signed.
   IDs reported by the game client can be forged.
 - A future website with Discord login can issue the same link; the server check is the same.
 
+## Assets
+
+- `src/LunarLauncher/Assets/lunar-logo.png`, `lunar-icon.png`, `lunar.ico`: the Lunar Roleplay logo kit (logo, star
+  mark, app icon). They belong to Lunar Roleplay.
+- `src/LunarLauncher/Assets/Marcellus-Regular.ttf`: the Marcellus typeface by Astigmatic, used for headings and the
+  main button, under the SIL Open Font License (`Marcellus-OFL.txt`).
+
+The window has no Windows frame: drag it from any empty area; minimise and close are top right.
+
 ## Discord brand
 
 The sign-in button follows Discord's [button guidelines](https://docs.discord.com/developers/discord-social-sdk/design-guidelines/branding-guidelines#buttons)
