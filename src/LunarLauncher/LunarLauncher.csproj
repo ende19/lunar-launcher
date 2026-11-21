@@ -9,7 +9,7 @@
     <AssemblyName>LunarLauncher</AssemblyName>
     <RootNamespace>LunarLauncher</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>0.4.0</Version>
+    <Version>0.4.1</Version>
     <Product>Lunar Roleplay Launcher</Product>
     <ApplicationIcon>Assets\lunar.ico</ApplicationIcon>
   </PropertyGroup>
@@ -24,6 +24,11 @@
     <EmbeddedResource Include="Assets\lunar-logo.png" LogicalName="lunar-logo.png" />
     <EmbeddedResource Include="Assets\lunar-icon.png" LogicalName="lunar-icon.png" />
     <EmbeddedResource Include="Assets\Marcellus-Regular.ttf" LogicalName="Marcellus-Regular.ttf" />
+  </ItemGroup>
+
+  <!-- Social icons from Simple Icons (CC0, simpleicons.org), rendered white from their SVGs. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\social-*.png" LogicalName="%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- The real launcher.json (repo root, git-ignored) is embedded so players get a single exe.

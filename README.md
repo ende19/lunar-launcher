@@ -73,6 +73,11 @@ Staff decide when players update. The approved build is in [`client-version.json
 | `modId`, `buildId` | The build's IDs in its MafiaHub download URL `https://api.mafiahub.dev/mods/<modId>/builds/<buildId>/download` |
 | `clientFolder` | Folder inside the zip that holds the client, e.g. `ArcaneMP-1.15.1/client` |
 | `sha256`, `size` | Checksum and size in bytes of the zip; a download that does not match is refused |
+| `serverHost`, `serverPort` | Optional. Game server address used by **Avvia**; overrides the one built in from `launcher.json` |
+
+To move the game server to a new IP, change `serverHost` here and push to `main`: launchers from 0.4.1 on pick it
+up at the next start, no new release needed. If GitHub cannot be reached, the address built into the launcher is
+used.
 
 On **Avvia** the launcher:
 
@@ -152,6 +157,12 @@ SmartScreen warns on first launch until it is code-signed.
   mark, app icon). They belong to Lunar Roleplay.
 - `src/LunarLauncher/Assets/Marcellus-Regular.ttf`: the Marcellus typeface by Astigmatic, used for headings and the
   main button, under the SIL Open Font License (`Marcellus-OFL.txt`).
+
+- `src/LunarLauncher/Assets/social-*.png`: Instagram, TikTok, YouTube and Discord icons from
+  [Simple Icons](https://simpleicons.org) (CC0), rendered white. The website icon is drawn in code.
+
+Social links (bottom right) are set in `src/LunarLauncher/SocialLinks.cs`. An empty URL is a placeholder that shows
+"in arrivo" on hover and does nothing.
 
 The window has no Windows frame: drag it from any empty area; minimise and close are top right.
 
