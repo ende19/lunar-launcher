@@ -22,11 +22,15 @@ addresses or passwords; those live only in a git-ignored `launcher.json`.
 - Asks Discord only for `identify` (your user ID and name) and `guilds.members.read` (your roles in the
   Lunar Roleplay server). It cannot read messages, servers you are in, or your email.
 - Listens on `127.0.0.1` (your own PC only, not the network) for up to 3 minutes to receive the sign-in.
-- Keeps the Discord token in memory only and passes it to the game when you press **Gioca**. It is never
-  written to disk.
+- Remembers your Discord sign-in so you do not sign in every time: the access and refresh tokens are saved in
+  `%LOCALAPPDATA%\LunarRoleplay\discord-session.bin`, encrypted with Windows DPAPI for your Windows user, so
+  the file is useless on another PC or account. On **Avvia** the launcher renews the token without the browser
+  and checks your role again. **Esci** deletes the file and asks Discord to revoke the sign-in. You can also
+  remove the launcher's access in Discord under *Impostazioni → App autorizzate*. Like any saved sign-in, a
+  program running as your Windows user could read it.
 - Reads [`client-version.json`](client-version.json) from this repository to learn which ArcaneMP build is
   approved, downloads that build from MafiaHub's official server (`api.mafiahub.dev`), checks its SHA-256, and
-  extracts only the `client` folder to `%LOCALAPPDATA%\LunarRoleplay\ArcaneMP\client`. The server folders
+  extracts only the `client` folder into the install folder you choose. The server folders
   in the same zip are skipped. The launcher never hosts or changes ArcaneMP files.
 - Copies `ArcaneMP_launcher.json` (your Hogwarts Legacy folder) from an existing ArcaneMP install, if any, so
   you do not have to pick the game again.
@@ -36,19 +40,27 @@ addresses or passwords; those live only in a git-ignored `launcher.json`.
 
 ## How it works
 
-1. **Accedi con Discord** opens Discord's authorize page with the scopes above. Discord redirects to
-   `http://127.0.0.1:<redirectPort>/callback`, where the launcher listens on a raw loopback socket (no
-   admin rights needed).
-2. The token is used once against `GET /users/@me/guilds/<guildId>/member` to read the display name and roles.
-3. **Gioca** first makes sure the approved ArcaneMP build is installed (see below), then starts
-   `ArcaneMPLauncher.exe` directly with the link as its argument. It does not rely on the
+The main button changes with the install state:
+
+1. **Installa** (ArcaneMP not installed) opens a small setup window asking where to install. The default is
+   `%LOCALAPPDATA%\LunarRoleplay\ArcaneMP`; picking a folder that already holds other files installs into a
+   `Lunar Roleplay` subfolder of it. The folder must be empty or an earlier Lunar Roleplay install. The download
+   shows a progress bar with size, speed and time left. The chosen folder is remembered in
+   `%LOCALAPPDATA%\LunarRoleplay\settings.json`.
+2. **Aggiorna** (staff approved a newer build) reinstalls in the same folder.
+3. **Avvia** applies an approved update if one appeared meanwhile, then signs in with Discord the first time:
+   it opens Discord's authorize page with the scopes above, and Discord redirects to
+   `http://127.0.0.1:<redirectPort>/callback`, where the launcher listens on a raw loopback socket (no admin
+   rights needed). The token is used once against `GET /users/@me/guilds/<guildId>/member` to read the display
+   name and roles. It then starts `ArcaneMPLauncher.exe` directly with the link as its argument, not through the
    `arcanemp://` / `hogwartsmp://` URL handlers, which can point to an outdated exe.
-4. **Ripara** downloads and reinstalls the approved build.
+
+**Ripara** downloads and reinstalls the approved build in the same folder.
 
 ## ArcaneMP version control
 
 Staff decide when players update. The approved build is in [`client-version.json`](client-version.json) on
-`main`; the launcher reads it from `raw.githubusercontent.com` each time **Gioca** is pressed.
+`main`; the launcher reads it from `raw.githubusercontent.com` each time **Avvia** is pressed.
 
 | Field | Meaning |
 | --- | --- |
@@ -57,7 +69,7 @@ Staff decide when players update. The approved build is in [`client-version.json
 | `clientFolder` | Folder inside the zip that holds the client, e.g. `ArcaneMP-1.15.1/client` |
 | `sha256`, `size` | Checksum and size in bytes of the zip; a download that does not match is refused |
 
-On **Gioca** the launcher:
+On **Avvia** the launcher:
 
 1. Reinstalls when the installed build differs from the approved one, or when `ArcaneMPClient.dll` or
    `ArcaneMPLauncher.exe` no longer match the hashes recorded at install (for example after ArcaneMP updated
@@ -75,10 +87,10 @@ To approve a new build:
    (Get-Item ArcaneMP-x.y.z.zip).Length               # size
    ```
 3. Check the zip's top folder name for `clientFolder`, update `client-version.json`, and push it to `main`.
-   Players get the new build the next time they press **Gioca** (GitHub may cache the file for a few minutes).
+   Players get the new build the next time they press **Avvia** (GitHub may cache the file for a few minutes).
 
 ArcaneMP's own launcher also checks MafiaHub for updates on start. If it moves to a newer build, the launcher
-notices the changed files on the next **Gioca** and puts the approved build back.
+notices the changed files on the next **Avvia** and puts the approved build back.
 
 ## Discord application setup
 
@@ -123,8 +135,8 @@ SmartScreen warns on first launch until it is code-signed.
 ## Security notes
 
 - The ticket is a Discord access token limited to `identify` and `guilds.members.read`. It passes to the game
-  as a process argument and is not saved by the launcher. It cannot be revoked from the launcher (Discord's
-  revoke endpoint needs the client secret); it expires on its own.
+  as a process argument. The launcher keeps it, with the refresh token, only in the DPAPI-encrypted file above.
+  **Esci** revokes both (best effort; they also expire or stop working when access is removed in Discord).
 - The server must treat the ticket as the only proof of Discord identity. Steam, Epic, Discord and hardware
   IDs reported by the game client can be forged.
 - A future website with Discord login can issue the same link; the server check is the same.

@@ -10,8 +10,9 @@ internal sealed record DiscordMember(string UserId, string DisplayName, IReadOnl
 
 /// <summary>
 /// Discord sign-in without a client secret. "pkce": authorization code + PKCE (requires "Public Client"
-/// in the Discord app). "implicit": token returned in the URL fragment. Either way the result is a
-/// short-lived access token scoped to identify + guilds.members.read.
+/// in the Discord app). "implicit": token returned in the URL fragment. Either way the result is an
+/// access token scoped to identify + guilds.members.read; the PKCE flow also returns a refresh token, which
+/// lets the launcher renew the sign-in without opening the browser again.
 /// </summary>
 internal static class DiscordAuth
 {
@@ -20,7 +21,7 @@ internal static class DiscordAuth
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
     private static readonly TimeSpan SignInTimeout = TimeSpan.FromMinutes(3);
 
-    public static async Task<string> SignInAsync(LauncherConfig config, CancellationToken cancel)
+    public static async Task<DiscordSession> SignInAsync(LauncherConfig config, CancellationToken cancel)
     {
         var state = RandomToken(24);
         var verifier = RandomToken(48);
@@ -71,19 +72,22 @@ internal static class DiscordAuth
                     throw new LauncherException("Risposta di Discord non valida. Riprova.");
                 }
 
-                string token;
                 if (pkce)
                 {
                     var code = request.Get("code") ?? throw new LauncherException("Discord non ha restituito un codice.");
                     await request.RespondAsync(200, Done(), timeout.Token);
-                    token = await ExchangeAsync(config, code, verifier, timeout.Token);
+                    return await TokenAsync(new Dictionary<string, string>
+                    {
+                        ["client_id"] = config.ClientId,
+                        ["grant_type"] = "authorization_code",
+                        ["code"] = code,
+                        ["redirect_uri"] = config.RedirectUri,
+                        ["code_verifier"] = verifier,
+                    }, timeout.Token) ?? throw new LauncherException("Discord ha rifiutato il codice di accesso. Riprova.");
                 }
-                else
-                {
-                    token = request.Get("access_token") ?? throw new LauncherException("Discord non ha restituito un token.");
-                    await request.RespondAsync(200, Done(), timeout.Token);
-                }
-                return token;
+                var token = request.Get("access_token") ?? throw new LauncherException("Discord non ha restituito un token.");
+                await request.RespondAsync(200, Done(), timeout.Token);
+                return new DiscordSession(token, null, Expiry(request.Get("expires_in")));
             }
         }
         catch (OperationCanceledException) when (!cancel.IsCancellationRequested)
@@ -98,7 +102,7 @@ internal static class DiscordAuth
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         using var response = await SendAsync(request, cancel);
         if ((int)response.StatusCode == 404) throw new LauncherException("Non fai parte del server Discord di Lunar Roleplay.");
-        if ((int)response.StatusCode == 401) throw new LauncherException("Accesso Discord scaduto. Accedi di nuovo.");
+        if ((int)response.StatusCode == 401) throw new DiscordExpiredException("Accesso Discord scaduto. Accedi di nuovo.");
         if (!response.IsSuccessStatusCode) throw new LauncherException($"Discord non ha risposto correttamente ({(int)response.StatusCode}).");
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancel));
@@ -109,29 +113,68 @@ internal static class DiscordAuth
         return new DiscordMember(user.GetProperty("id").GetString() ?? "", name, roles);
     }
 
-    private static async Task<string> ExchangeAsync(LauncherConfig config, string code, string verifier, CancellationToken cancel)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{Api}/oauth2/token")
+    /// <summary>
+    /// Renews a remembered sign-in without the browser. Null when Discord no longer accepts the refresh token
+    /// (access removed by the player, or expired): the player must sign in again.
+    /// </summary>
+    public static Task<DiscordSession?> RefreshAsync(LauncherConfig config, string refreshToken, CancellationToken cancel) =>
+        TokenAsync(new Dictionary<string, string>
         {
-            Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            ["client_id"] = config.ClientId,
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+        }, cancel);
+
+    /// <summary>Best effort: tells Discord to drop the sign-in. The local copy is deleted either way.</summary>
+    public static async Task RevokeAsync(LauncherConfig config, DiscordSession session)
+    {
+        foreach (var (token, hint) in new[] { (session.RefreshToken, "refresh_token"), (session.AccessToken, "access_token") })
+        {
+            if (token == null) continue;
+            try
             {
-                ["client_id"] = config.ClientId,
-                ["grant_type"] = "authorization_code",
-                ["code"] = code,
-                ["redirect_uri"] = config.RedirectUri,
-                ["code_verifier"] = verifier,
-            }),
-        };
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{Api}/oauth2/token/revoke")
+                {
+                    Content = new FormUrlEncodedContent(new Dictionary<string, string>
+                    {
+                        ["client_id"] = config.ClientId,
+                        ["token"] = token,
+                        ["token_type_hint"] = hint,
+                    }),
+                };
+                using var response = await Http.SendAsync(request);
+            }
+            catch (Exception) { /* Offline or refused: the token still expires on its own. */ }
+        }
+    }
+
+    /// <summary>Calls the token endpoint. Null when Discord answers invalid_grant; other failures throw.</summary>
+    private static async Task<DiscordSession?> TokenAsync(Dictionary<string, string> form, CancellationToken cancel)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{Api}/oauth2/token") { Content = new FormUrlEncodedContent(form) };
         using var response = await SendAsync(request, cancel);
         var body = await response.Content.ReadAsStringAsync(cancel);
+        var error = TryRead(body, "error");
+        if (error == "invalid_grant") return null;
         if (!response.IsSuccessStatusCode)
         {
             // invalid_client here usually means the Discord app is not a Public Client: switch authFlow to "implicit".
-            var reason = TryRead(body, "error") ?? ((int)response.StatusCode).ToString();
-            throw new LauncherException($"Scambio del codice Discord fallito ({reason}).");
+            throw new LauncherException($"Accesso a Discord non riuscito ({error ?? ((int)response.StatusCode).ToString()}).");
         }
-        return TryRead(body, "access_token") ?? throw new LauncherException("Discord non ha restituito un token.");
+        var token = TryRead(body, "access_token") ?? throw new LauncherException("Discord non ha restituito un token.");
+        string? expiresIn = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("expires_in", out var value) && value.TryGetInt64(out var seconds)) expiresIn = seconds.ToString();
+        }
+        catch (JsonException) { }
+        return new DiscordSession(token, TryRead(body, "refresh_token"), Expiry(expiresIn));
     }
+
+    // Discord access tokens last 7 days; assume 1 hour if the answer does not say.
+    private static DateTimeOffset Expiry(string? expiresIn) =>
+        DateTimeOffset.UtcNow.AddSeconds(long.TryParse(expiresIn, out var seconds) && seconds > 0 ? seconds : 3600);
 
     private static async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancel)
     {
