@@ -7,25 +7,58 @@ namespace LunarLauncher;
 
 internal sealed record InstalledClient(string Version, string BuildId, string Sha256, Dictionary<string, string> Files);
 
+/// <summary>Install progress: Fraction is 0–1 for the bar, Detail is the line under it (size, speed, time left).</summary>
+internal sealed record InstallProgress(string Text, double Fraction, string Detail);
+
 /// <summary>
-/// Installs the approved ArcaneMP client into %LOCALAPPDATA%\LunarRoleplay\ArcaneMP\client.
+/// Installs the approved ArcaneMP client into &lt;install folder&gt;\client. The folder is chosen by the player
+/// (default %LOCALAPPDATA%\LunarRoleplay\ArcaneMP) and remembered in %LOCALAPPDATA%\LunarRoleplay\settings.json.
 /// Only the zip's client folder is extracted; the server folders in the same zip are skipped.
 /// </summary>
 internal static class ClientInstaller
 {
-    public static readonly string Root = Path.Combine(
+    public static readonly string DefaultRoot = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LunarRoleplay", "ArcaneMP");
-    public static readonly string ClientDir = Path.Combine(Root, "client");
-    public static readonly string ExePath = Path.Combine(ClientDir, GameLocator.ExeName);
+    private static readonly string SettingsFile = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LunarRoleplay", "settings.json");
+    private const string StateName = "installed.json";
 
-    private static readonly string StateFile = Path.Combine(Root, "installed.json");
-    private static readonly string StagingDir = Path.Combine(Root, "staging");
-    private static readonly string DownloadFile = Path.Combine(Root, "download.zip.part");
+    public static string Root { get; private set; } = LoadRoot();
+    public static string ClientDir => Path.Combine(Root, "client");
+    public static string ExePath => Path.Combine(ClientDir, GameLocator.ExeName);
+
+    private static string StateFile => Path.Combine(Root, StateName);
+    private static string StagingDir => Path.Combine(Root, "staging");
+    private static string DownloadFile => Path.Combine(Root, "download.zip.part");
     // Hashed after install so a client changed by ArcaneMP's own updater is detected and put back.
     private static readonly string[] KeyFiles = ["ArcaneMPClient.dll", "ArcaneMPLauncher.exe"];
     // Kept from the previous install: the game path chosen in ArcaneMP, and the logs that hold the account ID.
     private const string GameConfig = "ArcaneMP_launcher.json";
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>Approximate disk space an install needs: the zip plus the extracted client and a margin.</summary>
+    public static long RequiredBytes(ClientManifest manifest) => manifest.Size * 4;
+
+    /// <summary>
+    /// Null when the folder can hold the install: it is missing, empty, or already a Lunar Roleplay install.
+    /// Otherwise the reason in Italian. Installs replace their own client subfolder, so an unrelated folder
+    /// with content is refused.
+    /// </summary>
+    public static string? CheckFolder(string folder)
+    {
+        try
+        {
+            var full = Path.GetFullPath(folder);
+            if (Path.GetPathRoot(full) == full) return "Scegli una cartella, non la radice del disco.";
+            if (!Directory.Exists(full)) return null;
+            if (File.Exists(Path.Combine(full, StateName))) return null;
+            return Directory.EnumerateFileSystemEntries(full).Any() ? "La cartella non è vuota: scegline una vuota o creane una nuova." : null;
+        }
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or IOException or UnauthorizedAccessException)
+        {
+            return "Percorso non valido.";
+        }
+    }
 
     public static InstalledClient? ReadInstalled()
     {
@@ -51,13 +84,24 @@ internal static class ClientInstaller
         catch (UnauthorizedAccessException) { return false; }
     }
 
-    public static async Task InstallAsync(HttpClient http, ClientManifest manifest, IProgress<string> progress, CancellationToken cancel)
+    /// <summary>Installs into <paramref name="folder"/>, or into the current install folder when null.</summary>
+    public static async Task InstallAsync(HttpClient http, ClientManifest manifest, string? folder, IProgress<InstallProgress> progress, CancellationToken cancel)
     {
-        if (IsGameRunning()) throw new LauncherException("Chiudi il gioco prima di aggiornare ArcaneMP.");
-        Directory.CreateDirectory(Root);
-        if (new DriveInfo(Path.GetPathRoot(Root)!).AvailableFreeSpace < manifest.Size * 4)
+        if (IsGameRunning()) throw new LauncherException("Chiudi il gioco prima di installare ArcaneMP.");
+        if (folder != null)
         {
-            throw new LauncherException($"Spazio su disco insufficiente: servono circa {Mb(manifest.Size * 4)} MB liberi.");
+            var problem = CheckFolder(folder);
+            if (problem != null) throw new LauncherException(problem);
+            Root = Path.GetFullPath(folder);
+        }
+        try { Directory.CreateDirectory(Root); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            throw new LauncherException("Impossibile creare la cartella di installazione: " + error.Message, error);
+        }
+        if (new DriveInfo(Path.GetPathRoot(Root)!).AvailableFreeSpace < RequiredBytes(manifest))
+        {
+            throw new LauncherException($"Spazio su disco insufficiente: servono circa {Gb(RequiredBytes(manifest))} GB liberi.");
         }
         DeleteDirectory(StagingDir);
         try
@@ -74,9 +118,31 @@ internal static class ClientInstaller
         }
         var files = KeyFiles.ToDictionary(name => name, name => HashFile(Path.Combine(ClientDir, name)));
         File.WriteAllText(StateFile, JsonSerializer.Serialize(new InstalledClient(manifest.Version, manifest.BuildId, manifest.Sha256, files)));
+        SaveRoot();
     }
 
-    private static async Task DownloadAsync(HttpClient http, ClientManifest manifest, IProgress<string> progress, CancellationToken cancel)
+    private static string LoadRoot()
+    {
+        try
+        {
+            if (!File.Exists(SettingsFile)) return DefaultRoot;
+            var saved = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(SettingsFile));
+            return saved != null && saved.TryGetValue("installDir", out var dir) && Path.IsPathFullyQualified(dir) ? dir : DefaultRoot;
+        }
+        catch (Exception) { return DefaultRoot; }
+    }
+
+    private static void SaveRoot()
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(SettingsFile)!);
+            File.WriteAllText(SettingsFile, JsonSerializer.Serialize(new Dictionary<string, string> { ["installDir"] = Root }));
+        }
+        catch (Exception) { /* Without it the next start looks in the default folder and offers Installa again. */ }
+    }
+
+    private static async Task DownloadAsync(HttpClient http, ClientManifest manifest, IProgress<InstallProgress> progress, CancellationToken cancel)
     {
         using var stall = CancellationTokenSource.CreateLinkedTokenSource(cancel);
         stall.CancelAfter(StallTimeout);
@@ -93,6 +159,8 @@ internal static class ClientInstaller
             var buffer = new byte[1 << 16];
             long total = 0;
             var lastReport = Stopwatch.StartNew();
+            long lastTotal = 0;
+            double speed = 0; // bytes per second, smoothed
             int read;
             while ((read = await source.ReadAsync(buffer, stall.Token)) > 0)
             {
@@ -101,10 +169,15 @@ internal static class ClientInstaller
                 if (total > manifest.Size) throw new LauncherException("Il download di ArcaneMP è più grande del previsto.");
                 hash.AppendData(buffer, 0, read);
                 await target.WriteAsync(buffer.AsMemory(0, read), stall.Token);
-                if (lastReport.ElapsedMilliseconds >= 250)
+                if (lastReport.ElapsedMilliseconds >= 500)
                 {
+                    var sample = (total - lastTotal) / lastReport.Elapsed.TotalSeconds;
+                    speed = speed == 0 ? sample : speed * 0.7 + sample * 0.3;
+                    lastTotal = total;
                     lastReport.Restart();
-                    progress.Report($"Download di ArcaneMP {manifest.Version}… {total * 100 / manifest.Size}% ({Mb(total)}/{Mb(manifest.Size)} MB)");
+                    var detail = $"{total * 100 / manifest.Size}% · {Mb(total)} / {Mb(manifest.Size)} MB · {speed / (1024 * 1024):0.0} MB/s";
+                    if (speed > 0) detail += " · " + Remaining(TimeSpan.FromSeconds((manifest.Size - total) / speed));
+                    progress.Report(new InstallProgress($"Download di ArcaneMP {manifest.Version}…", (double)total / manifest.Size, detail));
                 }
             }
             if (total != manifest.Size || Convert.ToHexStringLower(hash.GetHashAndReset()) != manifest.Sha256)
@@ -122,7 +195,7 @@ internal static class ClientInstaller
         }
     }
 
-    private static void Extract(ClientManifest manifest, IProgress<string> progress, CancellationToken cancel)
+    private static void Extract(ClientManifest manifest, IProgress<InstallProgress> progress, CancellationToken cancel)
     {
         var prefix = manifest.ClientFolder.TrimEnd('/') + "/";
         var root = Path.GetFullPath(StagingDir) + Path.DirectorySeparatorChar;
@@ -156,7 +229,8 @@ internal static class ClientInstaller
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             entry.ExtractToFile(target, overwrite: true);
             done += entry.Length;
-            progress.Report($"Installazione di ArcaneMP {manifest.Version}… {done * 100 / totalBytes}%");
+            progress.Report(new InstallProgress(
+                $"Installazione di ArcaneMP {manifest.Version}…", (double)done / totalBytes, $"{done * 100 / totalBytes}%"));
         }
     }
 
@@ -209,6 +283,11 @@ internal static class ClientInstaller
     }
 
     private static long Mb(long bytes) => bytes / (1024 * 1024);
+
+    public static string Gb(long bytes) => (bytes / (1024.0 * 1024 * 1024)).ToString("0.0");
+
+    private static string Remaining(TimeSpan left) =>
+        left.TotalMinutes >= 1 ? $"circa {(int)Math.Ceiling(left.TotalMinutes)} min" : $"circa {Math.Max(1, (int)left.TotalSeconds)} s";
 
     private static void TryDelete(string path)
     {
