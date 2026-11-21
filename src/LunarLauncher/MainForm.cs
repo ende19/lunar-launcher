@@ -10,8 +10,8 @@ internal sealed class MainForm : FramelessForm
 
     // Layout, in logical pixels at 100 % scaling.
     private const int W = 960, H = 560, TitleBar = 56;
-    private static readonly Rectangle LogoBox = new(300, 52, 360, 308);
-    private static readonly Rectangle CardBox = new(32, 400, 896, 124);
+    private static readonly Rectangle LogoBox = new(300, 48, 360, 292);
+    private static readonly Rectangle CardBox = new(32, 382, 896, 120);
 
     private static readonly Image Logo = Theme.LoadImage("lunar-logo.png");
     private static readonly Image Mark = Theme.LoadImage("lunar-icon.png");
@@ -33,6 +33,7 @@ internal sealed class MainForm : FramelessForm
     private readonly ToolTip tips = new();
     private readonly CancellationTokenSource closing = new();
     private readonly HttpClient http = CreateHttp();
+    private readonly SocialButton[] socials;
     private Bitmap? backdrop;
 
     private DiscordSession? session;
@@ -80,6 +81,8 @@ internal sealed class MainForm : FramelessForm
         minimize.Click += (_, _) => WindowState = FormWindowState.Minimized;
         close.Click += (_, _) => Close();
 
+        socials = SocialLinks.All.Select(link => new SocialButton(link, tips)).ToArray();
+        Controls.AddRange(socials);
         Controls.AddRange([status, progressBar, progressDetail, gamePath, repair, accountId, copyAccount,
             primary, signIn, discordName, signOut, minimize, close]);
         Draggable(this);
@@ -140,6 +143,15 @@ internal sealed class MainForm : FramelessForm
         gamePath.Location = new Point(S(CardBox.X + 24), S(CardBox.Y + 58));
         accountId.Location = new Point(S(CardBox.X + 24), S(CardBox.Y + 82));
         primary.Bounds = new Rectangle(S(CardBox.Right - 26 - 250), S(CardBox.Y + 30), S(250), S(64));
+        // Social links bottom right, under the card, in the order of SocialLinks.All from right to left.
+        // 20 px below the card and 16 px above the window edge.
+        var x = CardBox.Right - 2;
+        foreach (var social in socials)
+        {
+            x -= 24;
+            social.Bounds = new Rectangle(S(x), S(CardBox.Bottom + 20), S(24), S(24));
+            x -= 12;
+        }
         PlaceInline();
         Invalidate();
     }
@@ -216,7 +228,7 @@ internal sealed class MainForm : FramelessForm
         {
             const string text = "Server roleplay italiano di Hogwarts Legacy";
             var size = Theme.MeasureSpaced(g, text, tagline, S(1));
-            Theme.DrawSpaced(g, text, tagline, Theme.TextSecondary, new PointF((bitmap.Width - size.Width) / 2, S(364)), S(1));
+            Theme.DrawSpaced(g, text, tagline, Theme.TextSecondary, new PointF((bitmap.Width - size.Width) / 2, S(346)), S(1));
         }
 
         // Title bar: the Lunar mark and the name in spaced capitals.
@@ -250,7 +262,7 @@ internal sealed class MainForm : FramelessForm
         using (var muted = new SolidBrush(Theme.Muted))
         {
             var version = "Launcher v" + Application.ProductVersion.Split('+')[0];
-            g.DrawString(version, small, muted, S(CardBox.X + 4), S(H - 28));
+            g.DrawString(version, small, muted, S(CardBox.X + 4), S(H - 33));
         }
         return bitmap;
     }
@@ -473,7 +485,8 @@ internal sealed class MainForm : FramelessForm
         }
         await EnsureSignedInAsync();
 
-        var link = GameLink.Build(config, session!.AccessToken);
+        // The server address comes from client-version.json when it has one, so a new IP needs no new launcher.
+        var link = GameLink.Build(approved?.Apply(config) ?? config, session!.AccessToken);
         try
         {
             // Started directly rather than through the arcanemp:// handler, which may be stale on some PCs.
