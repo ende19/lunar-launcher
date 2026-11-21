@@ -9,9 +9,14 @@
     <AssemblyName>LunarLauncher</AssemblyName>
     <RootNamespace>LunarLauncher</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>0.3.0</Version>
+    <Version>0.3.1</Version>
     <Product>Lunar Roleplay Launcher</Product>
   </PropertyGroup>
+
+  <!-- Official white Discord logo (discord.com/branding), rendered from its SVG; used unaltered on the sign-in button. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\discord-logo-white.png" LogicalName="discord-logo-white.png" />
+  </ItemGroup>
 
   <!-- The real launcher.json (repo root, git-ignored) is embedded so players get a single exe.
        A launcher.json next to the exe still overrides it. -->

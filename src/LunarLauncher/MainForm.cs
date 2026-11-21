@@ -14,7 +14,8 @@ internal sealed class MainForm : Form
     private readonly Label progressDetail = new();
     private readonly Label gamePath = new();
     private readonly LinkLabel repair = new();
-    private readonly Label discordUser = new();
+    private readonly DiscordButton signIn = new();
+    private readonly Label discordName = new();
     private readonly LinkLabel signOut = new();
     private readonly Label accountId = new();
     private readonly LinkLabel copyAccount = new();
@@ -24,6 +25,7 @@ internal sealed class MainForm : Form
 
     private DiscordSession? session;
     private DiscordMember? member;
+    private bool allowed; // Signed in and holding an allowed role: unlocks the main button.
     private ClientManifest? approved;
     private ClientState state = ClientState.Checking;
     private bool busy;
@@ -38,7 +40,7 @@ internal sealed class MainForm : Form
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(440, 460);
+        ClientSize = new Size(500, 460);
         BackColor = Theme.Bg;
         ForeColor = Theme.Text;
         Font = new Font("Segoe UI", 10f);
@@ -58,6 +60,36 @@ internal sealed class MainForm : Form
             Text = "Lunar Roleplay", AutoSize = true, ForeColor = Theme.Text,
             Font = new Font("Segoe UI Semibold", 22f), Margin = new Padding(0),
         };
+
+        // Top right: "Accedi con Discord" when signed out, the Discord name and "Esci" when signed in.
+        signIn.AutoSize = true;
+        signIn.Margin = new Padding(0, 6, 0, 0);
+        signIn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        signIn.Click += async (_, _) => await RunAsync(SignInAsync);
+        discordName.AutoSize = true;
+        discordName.ForeColor = Theme.Text;
+        discordName.Font = new Font("Segoe UI Semibold", 9.5f);
+        discordName.Margin = new Padding(0, 8, 0, 0);
+        discordName.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        signOut.Text = "Esci";
+        signOut.AutoSize = true;
+        signOut.Font = new Font("Segoe UI", 9f);
+        signOut.LinkColor = Theme.PrimaryHover;
+        signOut.ActiveLinkColor = Theme.Text;
+        signOut.LinkBehavior = LinkBehavior.HoverUnderline;
+        signOut.Margin = new Padding(0, 2, 0, 0);
+        signOut.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        signOut.LinkClicked += (_, _) => SignOut();
+        var account = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Margin = new Padding(0), Anchor = AnchorStyles.Top | AnchorStyles.Right };
+        account.Controls.Add(signIn);
+        account.Controls.Add(discordName);
+        account.Controls.Add(signOut);
+
+        var header = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Margin = new Padding(0) };
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        header.Controls.Add(title, 0, 0);
+        header.Controls.Add(account, 1, 0);
         var subtitle = new Label
         {
             Text = "Server roleplay italiano di Hogwarts Legacy.", AutoSize = true,
@@ -106,18 +138,15 @@ internal sealed class MainForm : Form
 
         var gameRow = Row(gamePath, repair, "Ripara");
         repair.LinkClicked += async (_, _) => await RunAsync(RepairAsync);
-        var discordRow = Row(discordUser, signOut, "Esci");
-        signOut.LinkClicked += (_, _) => SignOut();
         var accountRow = Row(accountId, copyAccount, "Copia");
         copyAccount.LinkClicked += (_, _) => CopyAccount();
 
-        layout.Controls.Add(title);
+        layout.Controls.Add(header);
         layout.Controls.Add(subtitle);
         layout.Controls.Add(card);
         layout.Controls.Add(progressPanel);
         layout.Controls.Add(primary);
         layout.Controls.Add(gameRow);
-        layout.Controls.Add(discordRow);
         layout.Controls.Add(accountRow);
         Controls.Add(layout);
 
@@ -186,18 +215,28 @@ internal sealed class MainForm : Form
             ClientState.Outdated => "Aggiorna",
             _ => "Avvia",
         };
-        primary.Enabled = !busy;
-        discordUser.Text = member == null ? "Discord: non connesso" : "Discord: " + member.DisplayName;
-        signOut.Visible = session != null && !busy;
-        primary.BackColor = busy ? Theme.Border : Theme.Primary;
-        status.ForeColor = error ? Theme.Danger : member != null ? Theme.Text : Theme.TextSecondary;
-        status.Text = message ?? state switch
-        {
-            ClientState.Checking => "Controllo della versione di ArcaneMP…",
-            ClientState.NotInstalled => "Installa ArcaneMP per iniziare.",
-            ClientState.Outdated => $"È disponibile ArcaneMP {approved?.Version}: aggiorna per entrare nel server.",
-            _ => member == null ? "Pronto. Premi Avvia e accedi con Discord." : $"Connesso come {member.DisplayName}",
-        };
+        // Everything starts with the Discord sign-in: the main button stays locked until it succeeds.
+        primary.Enabled = !busy && allowed;
+        primary.BackColor = primary.Enabled ? Theme.Primary : Theme.Border;
+        signIn.Visible = session == null;
+        signIn.Enabled = !busy;
+        discordName.Visible = session != null;
+        discordName.Text = member?.DisplayName ?? "Discord";
+        signOut.Visible = session != null;
+        signOut.Enabled = !busy;
+        repair.Enabled = !busy && allowed;
+        status.ForeColor = error ? Theme.Danger : allowed ? Theme.Text : Theme.TextSecondary;
+        status.Text = message ??
+            (session == null ? "Accedi con Discord per iniziare."
+            : !allowed ? (member == null ? "Accesso a Discord da verificare: controlla la connessione."
+                : $"{member.DisplayName}, non hai ancora il ruolo whitelist sul Discord di Lunar Roleplay.")
+            : state switch
+            {
+                ClientState.Checking => "Controllo della versione di ArcaneMP…",
+                ClientState.NotInstalled => "Installa ArcaneMP per iniziare.",
+                ClientState.Outdated => $"È disponibile ArcaneMP {approved?.Version}: aggiorna per entrare nel server.",
+                _ => "Pronto. Premi Avvia per giocare.",
+            });
     }
 
     private void ShowProgress(InstallProgress progress)
@@ -369,7 +408,7 @@ internal sealed class MainForm : Form
         try
         {
             if (!await RenewAsync()) return;
-            member = await VerifyAsync(session!);
+            await VerifyAsync(session!);
         }
         catch (DiscordExpiredException)
         {
@@ -377,7 +416,7 @@ internal sealed class MainForm : Form
         }
         catch (LauncherException)
         {
-            // Offline or no role yet: keep the sign-in; Avvia checks again and shows the reason.
+            // Offline or no role yet: keep the sign-in; the status line shows the reason.
         }
     }
 
@@ -400,50 +439,52 @@ internal sealed class MainForm : Form
         return true;
     }
 
-    /// <summary>Avvia: reuses the remembered sign-in and checks the role again; opens the browser only when needed.</summary>
+    /// <summary>Avvia: renews the remembered sign-in and checks the role again, without opening the browser.</summary>
     private async Task EnsureSignedInAsync()
     {
-        if (session != null)
+        Render("Verifica dell'accesso a Discord…");
+        try
         {
-            Render("Verifica dell'accesso a Discord…");
-            try
+            if (await RenewAsync())
             {
-                if (await RenewAsync())
-                {
-                    member = await VerifyAsync(session!);
-                    return;
-                }
-            }
-            catch (DiscordExpiredException)
-            {
-                ForgetSession();
+                await VerifyAsync(session!);
+                return;
             }
         }
+        catch (DiscordExpiredException)
+        {
+            ForgetSession();
+        }
+        throw new LauncherException("Accesso a Discord scaduto: accedi di nuovo in alto a destra.");
+    }
+
+    /// <summary>"Accedi con Discord": opens the browser, then checks the role.</summary>
+    private async Task SignInAsync()
+    {
         Render("Completa l'accesso a Discord nel browser…");
         session = await DiscordAuth.SignInAsync(config, closing.Token);
         // Remembered even without the role yet, so a player who gets it later does not sign in again.
         SessionStore.Save(config.ClientId, session);
         Activate();
-        member = await VerifyAsync(session);
+        await VerifyAsync(session);
+        await UpdateStateAsync();
     }
 
-    private async Task<DiscordMember> VerifyAsync(DiscordSession current)
+    private async Task VerifyAsync(DiscordSession current)
     {
         Render("Verifica del ruolo…");
         var found = await DiscordAuth.GetMemberAsync(config, current.AccessToken, closing.Token);
+        member = found;
         // Any listed role admits: the whitelist role for players, plus e.g. the staff role.
-        if (!found.Roles.Any(config.RoleIds.Contains))
-        {
-            member = null;
-            throw new LauncherException($"{found.DisplayName}, non hai ancora il ruolo whitelist sul Discord di Lunar Roleplay.");
-        }
-        return found;
+        allowed = found.Roles.Any(config.RoleIds.Contains);
+        if (!allowed) throw new LauncherException($"{found.DisplayName}, non hai ancora il ruolo whitelist sul Discord di Lunar Roleplay.");
     }
 
     private void ForgetSession()
     {
         session = null;
         member = null;
+        allowed = false;
         SessionStore.Clear();
     }
 
@@ -453,7 +494,7 @@ internal sealed class MainForm : Form
         if (busy || session == null) return;
         var old = session;
         ForgetSession();
-        Render("Disconnesso da Discord. Al prossimo Avvia ti verrà chiesto di accedere.");
+        Render("Disconnesso da Discord.");
         _ = DiscordAuth.RevokeAsync(config, old);
     }
 

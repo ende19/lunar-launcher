@@ -40,7 +40,14 @@ addresses or passwords; those live only in a git-ignored `launcher.json`.
 
 ## How it works
 
-The main button changes with the install state:
+First the player signs in with **Accedi con Discord** (top right). It opens Discord's authorize page with the
+scopes above, and Discord redirects to `http://127.0.0.1:<redirectPort>/callback`, where the launcher listens on
+a raw loopback socket (no admin rights needed). The token is used against
+`GET /users/@me/guilds/<guildId>/member` to read the display name and roles. Until the player is signed in with
+an allowed role, the main button and **Ripara** stay disabled. Once signed in, the top right shows the Discord
+name and **Esci**.
+
+The main button then changes with the install state:
 
 1. **Installa** (ArcaneMP not installed) opens a small setup window asking where to install. The default is
    `%LOCALAPPDATA%\LunarRoleplay\ArcaneMP`; picking a folder that already holds other files installs into a
@@ -48,12 +55,10 @@ The main button changes with the install state:
    shows a progress bar with size, speed and time left. The chosen folder is remembered in
    `%LOCALAPPDATA%\LunarRoleplay\settings.json`.
 2. **Aggiorna** (staff approved a newer build) reinstalls in the same folder.
-3. **Avvia** applies an approved update if one appeared meanwhile, then signs in with Discord the first time:
-   it opens Discord's authorize page with the scopes above, and Discord redirects to
-   `http://127.0.0.1:<redirectPort>/callback`, where the launcher listens on a raw loopback socket (no admin
-   rights needed). The token is used once against `GET /users/@me/guilds/<guildId>/member` to read the display
-   name and roles. It then starts `ArcaneMPLauncher.exe` directly with the link as its argument, not through the
-   `arcanemp://` / `hogwartsmp://` URL handlers, which can point to an outdated exe.
+3. **Avvia** applies an approved update if one appeared meanwhile, renews the Discord sign-in and checks the
+   role again, then starts `ArcaneMPLauncher.exe` directly with the link as its argument, not through the
+   `arcanemp://` / `hogwartsmp://` URL handlers, which can point to an outdated exe. If the sign-in can no
+   longer be renewed, it asks the player to sign in again at the top right.
 
 **Ripara** downloads and reinstalls the approved build in the same folder.
 
@@ -140,3 +145,10 @@ SmartScreen warns on first launch until it is code-signed.
 - The server must treat the ticket as the only proof of Discord identity. Steam, Epic, Discord and hardware
   IDs reported by the game client can be forged.
 - A future website with Discord login can issue the same link; the server check is the same.
+
+## Discord brand
+
+The sign-in button follows Discord's [button guidelines](https://docs.discord.com/developers/discord-social-sdk/design-guidelines/branding-guidelines#buttons)
+(Blurple style). `src/LunarLauncher/Assets/discord-logo-white.png` is the official white Discord logo from
+[discord.com/branding](https://discord.com/branding), rendered from its SVG without changes. Discord and its logo
+are trademarks of Discord Inc.; this launcher is not made or endorsed by Discord.
