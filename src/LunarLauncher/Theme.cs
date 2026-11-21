@@ -14,4 +14,7 @@ internal static class Theme
     public static readonly Color TextSecondary = ColorTranslator.FromHtml("#A1A1B5");
     public static readonly Color Danger = ColorTranslator.FromHtml("#F87171");
     public static readonly Color Success = ColorTranslator.FromHtml("#4ADE80");
+    // Discord Blurple (discord.com/branding), for the sign-in button only; the hover shade is the button's pressed state.
+    public static readonly Color Discord = ColorTranslator.FromHtml("#5865F2");
+    public static readonly Color DiscordHover = ColorTranslator.FromHtml("#4752C4");
 }
