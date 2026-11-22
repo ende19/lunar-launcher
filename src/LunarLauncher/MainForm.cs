@@ -34,6 +34,9 @@ internal sealed class MainForm : FramelessForm
     private readonly CancellationTokenSource closing = new();
     private readonly HttpClient http = CreateHttp();
     private readonly SocialButton[] socials;
+    private readonly ServerStatus serverStatus = new();
+    private readonly System.Windows.Forms.Timer statusTimer = new() { Interval = 30_000 };
+    private bool probing;
     private Bitmap? backdrop;
 
     private DiscordSession? session;
@@ -84,18 +87,26 @@ internal sealed class MainForm : FramelessForm
         socials = SocialLinks.All.Select(link => new SocialButton(link, tips)).ToArray();
         Controls.AddRange(socials);
         Controls.AddRange([status, progressBar, progressDetail, gamePath, repair, accountId, copyAccount,
-            primary, signIn, discordName, signOut, minimize, close]);
+            primary, signIn, discordName, signOut, minimize, close, serverStatus]);
+        Draggable(serverStatus);
         Draggable(this);
         Draggable(status);
         Draggable(progressDetail);
 
         // Refresh the account ID when the player comes back from the game, which may have just created it.
         Activated += (_, _) => RefreshGame();
-        Shown += async (_, _) => await RunAsync(async () =>
+        Shown += async (_, _) =>
         {
-            await RestoreSessionAsync();
-            await CheckAsync();
-        });
+            statusTimer.Start();
+            await RunAsync(async () =>
+            {
+                await RestoreSessionAsync();
+                await CheckAsync();
+            });
+        };
+        // The address may come from client-version.json, so probe once more after it is read.
+        statusTimer.Tick += async (_, _) => await ProbeServerAsync();
+        Shown += async (_, _) => await ProbeServerAsync();
         FormClosing += OnClosing;
         ApplyScale();
         RefreshGame();
@@ -143,6 +154,14 @@ internal sealed class MainForm : FramelessForm
         gamePath.Location = new Point(S(CardBox.X + 24), S(CardBox.Y + 58));
         accountId.Location = new Point(S(CardBox.X + 24), S(CardBox.Y + 82));
         primary.Bounds = new Rectangle(S(CardBox.Right - 26 - 250), S(CardBox.Y + 30), S(250), S(64));
+        // Server status in the title bar, after the name.
+        using (var g = CreateGraphics())
+        using (var title = new Font(Theme.Display, 12f))
+        {
+            var titleRight = S(52) + Theme.MeasureSpaced(g, "LUNAR ROLEPLAY", title, S(3)).Width;
+            serverStatus.Size = serverStatus.GetPreferredSize(Size.Empty);
+            serverStatus.Location = new Point((int)titleRight + S(16), (S(TitleBar) - serverStatus.Height) / 2);
+        }
         // Social links bottom right, under the card, in the order of SocialLinks.All from right to left.
         // 20 px below the card and 16 px above the window edge.
         var x = CardBox.Right - 2;
@@ -388,6 +407,7 @@ internal sealed class MainForm : FramelessForm
         try
         {
             approved = await ClientManifest.FetchAsync(http, closing.Token);
+            _ = ProbeServerAsync();
         }
         catch (LauncherException)
         {
@@ -604,6 +624,30 @@ internal sealed class MainForm : FramelessForm
         _ = DiscordAuth.RevokeAsync(config, old);
     }
 
+    /// <summary>Green or red dot: can the game server port be reached right now?</summary>
+    private async Task ProbeServerAsync()
+    {
+        if (probing || closing.IsCancellationRequested || WindowState == FormWindowState.Minimized) return;
+        probing = true;
+        try
+        {
+            var target = approved?.Apply(config) ?? config;
+            var online = await ServerStatus.ProbeAsync(target.ServerHost, target.ServerPort, closing.Token);
+            serverStatus.Current = online ? ServerStatus.State.Online : ServerStatus.State.Offline;
+            tips.SetToolTip(serverStatus, online
+                ? "Il server Lunar Roleplay è raggiungibile."
+                : "Il server Lunar Roleplay non risponde: potrebbe essere spento o in riavvio.");
+        }
+        catch (OperationCanceledException)
+        {
+            // Closing.
+        }
+        finally
+        {
+            probing = false;
+        }
+    }
+
     private void OnClosing(object? sender, FormClosingEventArgs e)
     {
         if (installing && MessageBox.Show(this, "Interrompere l'installazione di ArcaneMP?", "Lunar Roleplay",
@@ -612,6 +656,7 @@ internal sealed class MainForm : FramelessForm
             e.Cancel = true;
             return;
         }
+        statusTimer.Stop();
         closing.Cancel();
     }
 
@@ -626,6 +671,7 @@ internal sealed class MainForm : FramelessForm
     {
         if (disposing)
         {
+            statusTimer.Dispose();
             closing.Dispose();
             http.Dispose();
             tips.Dispose();
