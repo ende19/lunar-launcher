@@ -73,7 +73,11 @@ Staff decide when players update. The approved build is in [`client-version.json
 | `modId`, `buildId` | The build's IDs in its MafiaHub download URL `https://api.mafiahub.dev/mods/<modId>/builds/<buildId>/download` |
 | `clientFolder` | Folder inside the zip that holds the client, e.g. `ArcaneMP-1.15.1/client` |
 | `sha256`, `size` | Checksum and size in bytes of the zip; a download that does not match is refused |
-| `serverHost`, `serverPort` | Optional. Game server address used by **Avvia**; overrides the one built in from `launcher.json` |
+| `serverHost`, `serverPort` | Optional. Game server address used by **Avvia** and the server status; overrides the one built in from `launcher.json` |
+
+The title bar shows the server status (from 0.4.3): a green dot when a TCP connection to `serverHost:serverPort`
+opens, a red one when it does not. It checks at start and every 30 seconds and sends no data, so the router must
+forward TCP as well as UDP on the game port.
 
 To move the game server to a new IP, change `serverHost` here and push to `main`: launchers from 0.4.1 on pick it
 up at the next start, no new release needed. If GitHub cannot be reached, the address built into the launcher is
