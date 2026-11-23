@@ -12,9 +12,9 @@
   "serverHost": "play.lunarroleplay.it",
   "serverPort": 27015,
   "launcher": {
-    "version": "0.4.6",
-    "url": "https://github.com/ende19/lunar-launcher/releases/download/v0.4.6/LunarLauncher.exe",
-    "sha256": "22dd170428cc63c573218d97dcf78e912a3d178b13fd2bb826eb233e6627a4dd",
-    "size": 51431694
+    "version": "0.4.7",
+    "url": "https://github.com/ende19/lunar-launcher/releases/download/v0.4.7/LunarLauncher.exe",
+    "sha256": "b343a53642bbe0a3cbf337c7b34588790fa4a5f6e4926b535e257638afaed383",
+    "size": 51431182
   }
 }
