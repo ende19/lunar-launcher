@@ -48,9 +48,11 @@ internal sealed class MainForm : FramelessForm
     private bool installing;
     private string? notice; // Shown once an action finishes, instead of the default status line.
 
-    public MainForm(LauncherConfig config)
+    public MainForm(LauncherConfig config, bool updated = false)
     {
         this.config = config;
+        // Started by a self-update: say so once the first check finishes.
+        if (updated) notice = $"Launcher aggiornato alla versione {LauncherUpdater.Current.ToString(3)}.";
         Text = "Lunar Roleplay";
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Theme.Night;
@@ -408,6 +410,7 @@ internal sealed class MainForm : FramelessForm
         {
             approved = await ClientManifest.FetchAsync(http, closing.Token);
             _ = ProbeServerAsync();
+            await UpdateLauncherAsync(approved);
         }
         catch (LauncherException)
         {
@@ -425,6 +428,40 @@ internal sealed class MainForm : FramelessForm
             : manifest != null && !await Task.Run(() => ClientInstaller.IsCurrent(manifest)) ? ClientState.Outdated
             : ClientState.Ready;
         RefreshGame();
+    }
+
+    /// <summary>
+    /// When client-version.json announces a newer launcher, downloads it, replaces this exe and restarts. A failed
+    /// update is reported and the launcher keeps working, unless it is older than the published minimum.
+    /// </summary>
+    private async Task UpdateLauncherAsync(ClientManifest manifest)
+    {
+        if (manifest.Launcher is not { } release || !LauncherUpdater.IsNewer(release)) return;
+        installing = true;
+        progressBar.Value = 0;
+        progressDetail.Text = "";
+        Render($"Aggiornamento del launcher a {release.Version}…");
+        try
+        {
+            var progress = new Progress<InstallProgress>(ShowProgress);
+            await Task.Run(() => LauncherUpdater.UpdateAsync(http, release, progress, closing.Token));
+        }
+        catch (LauncherException error)
+        {
+            installing = false;
+            Render();
+            if (error is LauncherUpdateBlockedException) LauncherUpdater.OpenReleasesPage();
+            if (LauncherUpdater.IsBelowMinimum(release))
+            {
+                throw new LauncherException(error.Message + $" Serve almeno la versione {release.MinVersion} per giocare.", error);
+            }
+            notice = error.Message;
+            return;
+        }
+        // The new launcher is running: close this one.
+        installing = false;
+        Close();
+        throw new OperationCanceledException();
     }
 
     private async Task<ClientManifest> ApprovedAsync()
@@ -520,6 +557,8 @@ internal sealed class MainForm : FramelessForm
         {
             // Version file unreachable: keep playing on the build already installed.
         }
+        // A launcher older than the published minimum may not play: update it first (it restarts).
+        if (manifest?.Launcher is { } release && LauncherUpdater.IsBelowMinimum(release)) await UpdateLauncherAsync(manifest);
         if (manifest != null && !await Task.Run(() => ClientInstaller.IsCurrent(manifest)))
         {
             await InstallIntoAsync(manifest, null);

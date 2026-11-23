@@ -115,6 +115,43 @@ To approve a new build:
 ArcaneMP's own launcher also checks MafiaHub for updates on start. If it moves to a newer build, the launcher
 notices the changed files on the next **Avvia** and puts the approved build back.
 
+## Launcher updates
+
+The launcher updates itself. `client-version.json` carries a `launcher` entry with the latest release:
+
+```json
+"launcher": {
+  "version": "0.4.5",
+  "url": "https://github.com/ende19/lunar-launcher/releases/download/v0.4.5/LunarLauncher.exe",
+  "sha256": "<sha-256 of the exe>",
+  "size": 51431694,
+  "minVersion": "0.4.5"
+}
+```
+
+On start, when `version` is newer than the running launcher, it downloads the exe (only from this repository's
+GitHub releases), checks size and SHA-256, renames itself to `LunarLauncher.old.exe` (Windows allows renaming a
+running exe, not overwriting it), moves the new exe into its place, starts it and closes. The new launcher deletes
+the `.old.exe` and says it was updated. The exe keeps its name and folder, so shortcuts keep working.
+
+If the update fails (no connection, a folder it cannot write to such as `Program Files`), the launcher says so
+and keeps working; for an unwritable folder it also opens the release page. `minVersion` is optional: a launcher
+older than it cannot press **Avvia** until it has updated. An invalid `launcher` entry is ignored, and launchers
+before 0.4.5 ignore it entirely (they have to be downloaded by hand once).
+
+### Releasing
+
+From a clean `main` that is pushed, raise `<Version>` in `src/LunarLauncher/LunarLauncher.csproj`, commit and push,
+then in PowerShell:
+
+```powershell
+scripts/release.ps1 -Notes "Prima novità.", "Seconda novità." [-MinVersion 0.4.6] [-DryRun]
+```
+
+It builds the exe, creates the GitHub release `v<version>` with Italian notes and the SHA-256, checks the
+uploaded file, then writes the `launcher` entry into `client-version.json` and pushes it, which is when installed
+launchers start updating. `-DryRun` only builds and prints the notes and the entry.
+
 ## Discord application setup
 
 1. In the [Discord Developer Portal](https://discord.com/developers/applications), create an application.
