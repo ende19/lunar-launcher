@@ -6,7 +6,7 @@ namespace LunarLauncher;
 
 internal sealed class MainForm : FramelessForm
 {
-    private enum ClientState { Checking, NotInstalled, Outdated, Ready }
+    private enum ClientState { Checking, NotInstalled, Outdated, Ready, LauncherOutdated }
 
     // Layout, in logical pixels at 100 % scaling.
     private const int W = 960, H = 560, TitleBar = 56;
@@ -52,7 +52,12 @@ internal sealed class MainForm : FramelessForm
     {
         this.config = config;
         // Started by a self-update: say so once the first check finishes.
-        if (updated) notice = $"Launcher aggiornato alla versione {LauncherUpdater.Current.ToString(3)}.";
+        if (updated)
+        {
+            notice = $"Launcher aggiornato alla versione {LauncherUpdater.Current.ToString(3)}.";
+            // The old launcher closed after starting this one, so Windows may open it behind other windows.
+            Shown += (_, _) => { TopMost = true; TopMost = false; Activate(); };
+        }
         Text = "Lunar Roleplay";
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Theme.Night;
@@ -77,6 +82,7 @@ internal sealed class MainForm : FramelessForm
         {
             ClientState.NotInstalled => InstallAsync,
             ClientState.Outdated => UpdateAsync,
+            ClientState.LauncherOutdated => UpdateLauncherAsync,
             _ => PlayAsync,
         });
         signIn.Click += async (_, _) => await RunAsync(SignInAsync);
@@ -334,11 +340,12 @@ internal sealed class MainForm : FramelessForm
         {
             ClientState.Checking => "Controllo…",
             ClientState.NotInstalled => "Installa",
-            ClientState.Outdated => "Aggiorna",
+            ClientState.Outdated or ClientState.LauncherOutdated => "Aggiorna",
             _ => "Avvia",
         };
         // Everything starts with the Discord sign-in: the main button stays locked until it succeeds.
-        primary.Enabled = !busy && allowed;
+        // Updating the launcher needs no sign-in.
+        primary.Enabled = !busy && (allowed || state == ClientState.LauncherOutdated);
         signIn.Visible = session == null;
         signIn.Enabled = !busy;
         discordName.Visible = session != null;
@@ -354,7 +361,8 @@ internal sealed class MainForm : FramelessForm
         PlaceInline();
         status.ForeColor = error ? Theme.Danger : allowed ? Theme.Text : Theme.TextSecondary;
         status.Text = message ??
-            (session == null ? "Accedi con Discord per iniziare."
+            (state == ClientState.LauncherOutdated ? $"È disponibile il launcher {approved?.Launcher?.Version}: premi Aggiorna."
+            : session == null ? "Accedi con Discord per iniziare."
             : !allowed ? (member == null ? "Accesso a Discord da verificare: controlla la connessione."
                 : $"{member.DisplayName}, non hai ancora il ruolo whitelist sul Discord di Lunar Roleplay.")
             : state switch
@@ -410,7 +418,6 @@ internal sealed class MainForm : FramelessForm
         {
             approved = await ClientManifest.FetchAsync(http, closing.Token);
             _ = ProbeServerAsync();
-            await UpdateLauncherAsync(approved);
         }
         catch (LauncherException)
         {
@@ -427,16 +434,23 @@ internal sealed class MainForm : FramelessForm
         state = ClientInstaller.ReadInstalled() == null ? ClientState.NotInstalled
             : manifest != null && !await Task.Run(() => ClientInstaller.IsCurrent(manifest)) ? ClientState.Outdated
             : ClientState.Ready;
+        // A newer launcher comes first: the main button becomes Aggiorna until the player updates it.
+        if (manifest?.Launcher is { } release && LauncherUpdater.IsNewer(release)) state = ClientState.LauncherOutdated;
         RefreshGame();
     }
 
     /// <summary>
-    /// When client-version.json announces a newer launcher, downloads it, replaces this exe and restarts. A failed
-    /// update is reported and the launcher keeps working, unless it is older than the published minimum.
+    /// Aggiorna with a newer launcher announced: downloads it, replaces this exe and restarts. A failed update is
+    /// reported (for a folder it cannot write to, the release page opens) and the button stays on Aggiorna.
     /// </summary>
-    private async Task UpdateLauncherAsync(ClientManifest manifest)
+    private async Task UpdateLauncherAsync()
     {
-        if (manifest.Launcher is not { } release || !LauncherUpdater.IsNewer(release)) return;
+        var manifest = await ApprovedAsync();
+        if (manifest.Launcher is not { } release || !LauncherUpdater.IsNewer(release))
+        {
+            await UpdateStateAsync();
+            return;
+        }
         installing = true;
         progressBar.Value = 0;
         progressDetail.Text = "";
@@ -451,12 +465,7 @@ internal sealed class MainForm : FramelessForm
             installing = false;
             Render();
             if (error is LauncherUpdateBlockedException) LauncherUpdater.OpenReleasesPage();
-            if (LauncherUpdater.IsBelowMinimum(release))
-            {
-                throw new LauncherException(error.Message + $" Serve almeno la versione {release.MinVersion} per giocare.", error);
-            }
-            notice = error.Message;
-            return;
+            throw;
         }
         // The new launcher is running: close this one.
         installing = false;
@@ -557,8 +566,12 @@ internal sealed class MainForm : FramelessForm
         {
             // Version file unreachable: keep playing on the build already installed.
         }
-        // A launcher older than the published minimum may not play: update it first (it restarts).
-        if (manifest?.Launcher is { } release && LauncherUpdater.IsBelowMinimum(release)) await UpdateLauncherAsync(manifest);
+        // A launcher release that appeared while the window was open: the player updates it first.
+        if (manifest?.Launcher is { } release && LauncherUpdater.IsNewer(release))
+        {
+            state = ClientState.LauncherOutdated;
+            throw new LauncherException($"È disponibile il launcher {release.Version}: premi Aggiorna.");
+        }
         if (manifest != null && !await Task.Run(() => ClientInstaller.IsCurrent(manifest)))
         {
             await InstallIntoAsync(manifest, null);

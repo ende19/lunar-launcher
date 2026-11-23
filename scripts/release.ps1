@@ -5,16 +5,14 @@
 .DESCRIPTION
   From a clean, pushed main: builds the self-contained exe, creates the GitHub release v<version> with it
   (version from LunarLauncher.csproj), checks the uploaded file, then writes the "launcher" entry of
-  client-version.json and pushes it to main. Launchers read that file on start and update themselves.
+  client-version.json and pushes it to main. Launchers read that file on start and offer Aggiorna.
   With -DryRun it only builds and prints what it would do.
 
 .EXAMPLE
   scripts/release.ps1 -Notes "Collega un'installazione di ArcaneMP esistente."
-  scripts/release.ps1 -Notes "Correzione importante." -MinVersion 0.4.6   # older launchers must update to play
 #>
 param(
     [Parameter(Mandatory = $true)][string[]]$Notes,
-    [string]$MinVersion,
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -28,8 +26,6 @@ function Invoke-Git { & git.exe @args; if ($LASTEXITCODE -ne 0) { Fail "git $($a
 [xml]$project = Get-Content (Join-Path $repo 'src\LunarLauncher\LunarLauncher.csproj')
 $version = ([string]$project.Project.PropertyGroup.Version).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+$') { Fail "Unexpected version '$version' in LunarLauncher.csproj" }
-if ($MinVersion -and $MinVersion -notmatch '^\d+\.\d+\.\d+$') { Fail "MinVersion must look like 0.4.6" }
-if ($MinVersion -and [version]$MinVersion -gt [version]$version) { Fail "MinVersion $MinVersion is newer than the release $version" }
 $tag = "v$version"
 
 if (-not (Test-Path (Join-Path $repo 'launcher.json'))) { Fail 'launcher.json is missing: it is embedded in the exe' }
@@ -63,7 +59,6 @@ $body += @('', ('Windows potrebbe mostrare un avviso SmartScreen al primo avvio:
     'SHA-256 di `LunarLauncher.exe`:', "``$sha``")
 
 $entry = "  `"launcher`": {`n    `"version`": `"$version`",`n    `"url`": `"$url`",`n    `"sha256`": `"$sha`",`n    `"size`": $size"
-if ($MinVersion) { $entry += ",`n    `"minVersion`": `"$MinVersion`"" }
 $entry += "`n  }"
 
 if ($DryRun) {
