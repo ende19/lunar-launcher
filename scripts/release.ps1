@@ -90,4 +90,4 @@ $null = $manifest | ConvertFrom-Json # Refuse to push a file launchers cannot re
 Invoke-Git add client-version.json
 Invoke-Git commit -q -m "Release: launcher $version announced in client-version.json"
 Invoke-Git push -q origin main
-Write-Host "Released $tag and announced it. Installed launchers update on their next start."
+Write-Host "Released $tag and announced it. Installed launchers show Aggiorna on their next start."

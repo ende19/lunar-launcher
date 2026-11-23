@@ -361,7 +361,7 @@ internal sealed class MainForm : FramelessForm
         PlaceInline();
         status.ForeColor = error ? Theme.Danger : allowed ? Theme.Text : Theme.TextSecondary;
         status.Text = message ??
-            (state == ClientState.LauncherOutdated ? $"È disponibile il launcher {approved?.Launcher?.Version}: premi Aggiorna."
+            (state == ClientState.LauncherOutdated ? $"È disponibile il launcher {approved?.Launcher?.Version}."
             : session == null ? "Accedi con Discord per iniziare."
             : !allowed ? (member == null ? "Accesso a Discord da verificare: controlla la connessione."
                 : $"{member.DisplayName}, non hai ancora il ruolo whitelist sul Discord di Lunar Roleplay.")
@@ -570,7 +570,7 @@ internal sealed class MainForm : FramelessForm
         if (manifest?.Launcher is { } release && LauncherUpdater.IsNewer(release))
         {
             state = ClientState.LauncherOutdated;
-            throw new LauncherException($"È disponibile il launcher {release.Version}: premi Aggiorna.");
+            throw new LauncherException($"È disponibile il launcher {release.Version}.");
         }
         if (manifest != null && !await Task.Run(() => ClientInstaller.IsCurrent(manifest)))
         {
