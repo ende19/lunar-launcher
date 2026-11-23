@@ -10,5 +10,11 @@
     "ArcaneMPLauncher.exe": "22173ef7d0126b0dcbd0dc59422338522d81fafaa07fcc06bb8e94c45e3f2d68"
   },
   "serverHost": "play.lunarroleplay.it",
-  "serverPort": 27015
+  "serverPort": 27015,
+  "launcher": {
+    "version": "0.4.5",
+    "url": "https://github.com/ende19/lunar-launcher/releases/download/v0.4.5/LunarLauncher.exe",
+    "sha256": "bb50e7bb902ffb0653843f753137a9838c31fb103185f0cb9d5b5957cd17ef0b",
+    "size": 51431694
+  }
 }
