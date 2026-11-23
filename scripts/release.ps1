@@ -22,7 +22,8 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $repo
 
 function Fail($message) { Write-Error $message; exit 1 }
-function Git { & git @args; if ($LASTEXITCODE -ne 0) { Fail "git $($args -join ' ') failed" } }
+# Not named "Git": PowerShell names are case-insensitive, so it would call itself instead of git.exe.
+function Invoke-Git { & git.exe @args; if ($LASTEXITCODE -ne 0) { Fail "git $($args -join ' ') failed" } }
 
 [xml]$project = Get-Content (Join-Path $repo 'src\LunarLauncher\LunarLauncher.csproj')
 $version = ([string]$project.Project.PropertyGroup.Version).Trim()
@@ -35,9 +36,12 @@ if (-not (Test-Path (Join-Path $repo 'launcher.json'))) { Fail 'launcher.json is
 if (-not $DryRun) {
     if ((git rev-parse --abbrev-ref HEAD) -ne 'main') { Fail 'Release from main' }
     if (git status --porcelain) { Fail 'The working tree is not clean' }
-    Git fetch -q origin main
+    Invoke-Git fetch -q origin main
     if ((git rev-parse HEAD) -ne (git rev-parse origin/main)) { Fail 'main is not the same as origin/main: push or pull first' }
+    # Redirected stderr would be a terminating error under Stop, and "release not found" is the expected answer.
+    $ErrorActionPreference = 'Continue'
     & gh release view $tag *> $null
+    $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -eq 0) { Fail "Release $tag already exists: raise <Version> in LunarLauncher.csproj" }
 }
 
@@ -88,7 +92,7 @@ if ($manifest -match '(?s)\n  "launcher": \{[^{}]*\}') {
 }
 $null = $manifest | ConvertFrom-Json # Refuse to push a file launchers cannot read.
 [IO.File]::WriteAllText($manifestPath, $manifest, (New-Object Text.UTF8Encoding $false))
-Git add client-version.json
-Git commit -q -m "Release: launcher $version announced in client-version.json"
-Git push -q origin main
+Invoke-Git add client-version.json
+Invoke-Git commit -q -m "Release: launcher $version announced in client-version.json"
+Invoke-Git push -q origin main
 Write-Host "Released $tag and announced it. Installed launchers update on their next start."
