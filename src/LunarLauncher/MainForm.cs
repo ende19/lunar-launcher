@@ -437,6 +437,7 @@ internal sealed class MainForm : FramelessForm
     {
         var manifest = await ApprovedAsync();
         string folder;
+        string? linked;
         using (var setup = new SetupDialog(manifest.Version, ClientInstaller.RequiredBytes(manifest), ClientInstaller.Root))
         {
             if (setup.ShowDialog(this) != DialogResult.OK)
@@ -444,9 +445,35 @@ internal sealed class MainForm : FramelessForm
                 await UpdateStateAsync();
                 return;
             }
-            folder = setup.SelectedFolder;
+            linked = setup.LinkedRoot;
+            folder = linked == null ? setup.SelectedFolder : "";
         }
-        await InstallIntoAsync(manifest, folder);
+        if (linked != null) await LinkIntoAsync(manifest, linked);
+        else await InstallIntoAsync(manifest, folder);
+    }
+
+    /// <summary>Links the player's own ArcaneMP: kept when it is the approved build, else that build is installed into it.</summary>
+    private async Task LinkIntoAsync(ClientManifest manifest, string root)
+    {
+        installing = true;
+        progressBar.Value = 0;
+        progressDetail.Text = "";
+        Render($"Controllo di ArcaneMP in {root}…");
+        bool kept;
+        try
+        {
+            var progress = new Progress<InstallProgress>(ShowProgress);
+            kept = await Task.Run(() => ClientInstaller.LinkAsync(http, manifest, root, progress, closing.Token));
+        }
+        finally
+        {
+            installing = false;
+            Render();
+            await UpdateStateAsync();
+        }
+        notice = kept
+            ? $"ArcaneMP {manifest.Version} collegato. Premi Avvia per giocare."
+            : $"La tua installazione è stata portata ad ArcaneMP {manifest.Version}, la versione approvata. Premi Avvia per giocare.";
     }
 
     private async Task UpdateAsync() => await InstallIntoAsync(await ApprovedAsync(), null);

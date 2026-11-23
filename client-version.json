@@ -5,6 +5,10 @@
   "clientFolder": "ArcaneMP-1.15.1/client",
   "sha256": "f7d1a5edd3132773be8f0f38a00603e43dd18615a4db676aee72af834a47cd34",
   "size": 372883323,
+  "files": {
+    "ArcaneMPClient.dll": "eaaa77eb783c95ef98a856c5affe29f067169c1630f7e158fb538e796bedaeef",
+    "ArcaneMPLauncher.exe": "22173ef7d0126b0dcbd0dc59422338522d81fafaa07fcc06bb8e94c45e3f2d68"
+  },
   "serverHost": "play.lunarroleplay.it",
   "serverPort": 27015
 }

@@ -3,7 +3,10 @@ using System.Drawing.Text;
 
 namespace LunarLauncher;
 
-/// <summary>Small setup popup: asks where to install ArcaneMP, defaulting to the current install folder.</summary>
+/// <summary>
+/// Small setup popup: asks where to install ArcaneMP, defaulting to the current install folder. A player who
+/// already has ArcaneMP can link that install instead (LinkedRoot); the launcher then checks its version.
+/// </summary>
 internal sealed class SetupDialog : FramelessForm
 {
     private const string SubfolderName = "Lunar Roleplay";
@@ -20,8 +23,11 @@ internal sealed class SetupDialog : FramelessForm
     private readonly LunarButton cancel = new() { Text = "Annulla", Secondary = true };
     private readonly LunarButton install = new() { Text = "Installa" };
     private readonly WindowButton close = new(WindowButton.Kind.Close);
+    private readonly LinkLabel link = new();
 
     public string SelectedFolder => Path.GetFullPath(folder.Text.Trim());
+    /// <summary>Set when the player linked an existing ArcaneMP install instead of choosing a new folder.</summary>
+    public string? LinkedRoot { get; private set; }
 
     public SetupDialog(string version, long requiredBytes, string defaultFolder)
     {
@@ -52,6 +58,15 @@ internal sealed class SetupDialog : FramelessForm
         folder.LostFocus += (_, _) => field.Invalidate();
         field.Controls.Add(folder);
 
+        link.Text = "Hai già ArcaneMP? Collega la tua installazione";
+        link.AutoSize = true;
+        link.BackColor = Color.Transparent;
+        link.Font = new Font("Segoe UI Semibold", 9f);
+        link.LinkColor = Theme.Gold;
+        link.ActiveLinkColor = Theme.Text;
+        link.LinkBehavior = LinkBehavior.HoverUnderline;
+        link.LinkClicked += (_, _) => LinkExisting();
+
         browse.Click += (_, _) => Browse();
         cancel.Click += (_, _) => DialogResult = DialogResult.Cancel;
         close.Click += (_, _) => DialogResult = DialogResult.Cancel;
@@ -62,7 +77,7 @@ internal sealed class SetupDialog : FramelessForm
             else if (e.KeyCode == Keys.Enter && install.Enabled && CheckInput()) DialogResult = DialogResult.OK;
         };
 
-        Controls.AddRange([info, folderLabel, field, browse, space, problem, cancel, install, close]);
+        Controls.AddRange([info, folderLabel, field, browse, space, problem, link, cancel, install, close]);
         Draggable(this);
         Draggable(info);
         // Caret at the end instead of the whole path selected.
@@ -101,6 +116,8 @@ internal sealed class SetupDialog : FramelessForm
         problem.Location = new Point(S(26), S(210));
         install.Bounds = new Rectangle(S(W - 28 - 150), S(H - 28 - 46), S(150), S(46));
         cancel.Bounds = new Rectangle(install.Left - S(12) - S(120), install.Top, S(120), S(46));
+        link.MaximumSize = new Size(cancel.Left - S(26) - S(12), 0);
+        link.Location = new Point(S(26), install.Top + (install.Height - link.PreferredSize.Height) / 2);
         Invalidate();
     }
 
@@ -142,6 +159,29 @@ internal sealed class SetupDialog : FramelessForm
         // A folder that already holds other things (e.g. D:\Games) gets its own "Lunar Roleplay" subfolder.
         if (ClientInstaller.CheckFolder(chosen) != null) chosen = Path.Combine(chosen, SubfolderName);
         folder.Text = chosen;
+    }
+
+    private void LinkExisting()
+    {
+        var found = GameLocator.FindExistingClient();
+        using var dialog = new FolderBrowserDialog
+        {
+            Description = $"Scegli la cartella di ArcaneMP (quella con {GameLocator.ExeName})",
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = false,
+            InitialDirectory = found ?? "",
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            LinkedRoot = ClientInstaller.ResolveExisting(dialog.SelectedPath);
+            DialogResult = DialogResult.OK;
+        }
+        catch (LauncherException error)
+        {
+            problem.Text = error.Message;
+            problem.Visible = true;
+        }
     }
 
     private static string ExistingParent(string path)
