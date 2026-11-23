@@ -9,7 +9,7 @@
     <AssemblyName>LunarLauncher</AssemblyName>
     <RootNamespace>LunarLauncher</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>0.4.6</Version>
+    <Version>0.4.7</Version>
     <Product>Lunar Roleplay Launcher</Product>
     <ApplicationIcon>Assets\lunar.ico</ApplicationIcon>
   </PropertyGroup>
