@@ -9,10 +9,12 @@ namespace LunarLauncher;
 /// launcher repository. The zip is always downloaded from MafiaHub's official URL; the checksum makes sure
 /// it is exactly the approved build. The same file may also carry the game server address, so staff can move
 /// the server without a new launcher release; without it, the address built into the launcher is used.
+/// Files, when present, holds the SHA-256 of the approved build's key files, so an ArcaneMP install the player
+/// links can be recognised as that build without downloading it again.
 /// </summary>
 internal sealed record ClientManifest(
     string Version, string ModId, string BuildId, string ClientFolder, string Sha256, long Size,
-    string? ServerHost = null, int? ServerPort = null)
+    string? ServerHost = null, int? ServerPort = null, Dictionary<string, string>? Files = null)
 {
     public const string Url = "https://raw.githubusercontent.com/ende19/lunar-launcher/main/client-version.json";
 
@@ -52,7 +54,8 @@ internal sealed record ClientManifest(
             SafeVersion.IsMatch(Version ?? "") && Guid.IsMatch(ModId ?? "") && Guid.IsMatch(BuildId ?? "") &&
             SafeFolder.IsMatch(ClientFolder ?? "") && !ClientFolder!.Split('/').Contains("..") &&
             Hex64.IsMatch(Sha256 ?? "") && Size is > 0 and < 4L * 1024 * 1024 * 1024 &&
-            (ServerHost == null || SafeHost.IsMatch(ServerHost)) && ServerPort is null or (>= 1 and <= 65535);
+            (ServerHost == null || SafeHost.IsMatch(ServerHost)) && ServerPort is null or (>= 1 and <= 65535) &&
+            (Files == null || Files.Count <= 16 && Files.All(file => SafeFolder.IsMatch(file.Key) && Hex64.IsMatch(file.Value ?? "")));
         if (!valid) throw new LauncherException("La versione approvata di ArcaneMP non è valida.");
         return this;
     }

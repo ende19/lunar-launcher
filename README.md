@@ -54,6 +54,12 @@ The main button then changes with the install state:
    `Lunar Roleplay` subfolder of it. The folder must be empty or an earlier Lunar Roleplay install. The download
    shows a progress bar with size, speed and time left. The chosen folder is remembered in
    `%LOCALAPPDATA%\LunarRoleplay\settings.json`.
+   **Hai già ArcaneMP? Collega la tua installazione** in the same window links an ArcaneMP the player already
+   has, for when it is not found on its own: they pick its `client` folder (the one with `ArcaneMPLauncher.exe`)
+   or the folder that holds it. If its key files match the approved build's hashes it is kept as it is, with no
+   download; otherwise the approved build is installed into that folder (an update or a downgrade), replacing
+   its `client` folder but keeping the game path setting and the logs. It then works like any other install.
+   The folder must be writable; a client not kept in a folder named `client` is refused.
 2. **Aggiorna** (staff approved a newer build) reinstalls in the same folder.
 3. **Avvia** applies an approved update if one appeared meanwhile, renews the Discord sign-in and checks the
    role again, then starts `ArcaneMPLauncher.exe` directly with the link as its argument, not through the
@@ -100,7 +106,10 @@ To approve a new build:
    Get-FileHash ArcaneMP-x.y.z.zip -Algorithm SHA256   # sha256 (write it in lowercase)
    (Get-Item ArcaneMP-x.y.z.zip).Length               # size
    ```
-3. Check the zip's top folder name for `clientFolder`, update `client-version.json`, and push it to `main`.
+3. Check the zip's top folder name for `clientFolder`, and put the SHA-256 of the extracted
+   `client\ArcaneMPClient.dll` and `client\ArcaneMPLauncher.exe` under `files` (they let a linked install be
+   recognised as the approved build; without them a linked install is always reinstalled). Update
+   `client-version.json` and push it to `main`.
    Players get the new build the next time they press **Avvia** (GitHub may cache the file for a few minutes).
 
 ArcaneMP's own launcher also checks MafiaHub for updates on start. If it moves to a newer build, the launcher

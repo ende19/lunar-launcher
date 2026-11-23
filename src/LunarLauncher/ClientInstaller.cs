@@ -121,6 +121,67 @@ internal static class ClientInstaller
         SaveRoot();
     }
 
+    /// <summary>
+    /// The install root of an ArcaneMP client the player already has: <paramref name="chosen"/> may be the client
+    /// folder itself (the one with ArcaneMPLauncher.exe, named "client") or the folder that holds it. Throws with
+    /// the reason in Italian when it is not one.
+    /// </summary>
+    public static string ResolveExisting(string chosen)
+    {
+        string full;
+        try { full = Path.GetFullPath(chosen); }
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or IOException)
+        {
+            throw new LauncherException("Percorso non valido.", error);
+        }
+        if (File.Exists(Path.Combine(full, "client", GameLocator.ExeName))) return full;
+        if (File.Exists(Path.Combine(full, GameLocator.ExeName)))
+        {
+            var parent = Path.GetDirectoryName(full);
+            if (Path.GetFileName(full).Equals("client", StringComparison.OrdinalIgnoreCase) && parent != null && Path.GetPathRoot(parent) != parent) return parent;
+            throw new LauncherException("ArcaneMP va tenuto in una cartella \"client\" (come nello zip ufficiale): sposta la cartella o installa da zero.");
+        }
+        throw new LauncherException($"Non trovo {GameLocator.ExeName} in questa cartella: scegli la cartella di ArcaneMP.");
+    }
+
+    /// <summary>
+    /// Links an existing ArcaneMP install (root from <see cref="ResolveExisting"/>) as the launcher's install.
+    /// When its key files are the approved build it is adopted as it is and true is returned; otherwise the approved
+    /// build is installed into it (an update or a downgrade), keeping the game path setting and logs, and false is
+    /// returned. On failure the launcher keeps its previous install folder.
+    /// </summary>
+    public static async Task<bool> LinkAsync(HttpClient http, ClientManifest manifest, string root, IProgress<InstallProgress> progress, CancellationToken cancel)
+    {
+        if (IsGameRunning()) throw new LauncherException("Chiudi il gioco prima di collegare ArcaneMP.");
+        var probe = Path.Combine(root, ".lunar-write-test");
+        try { File.WriteAllText(probe, ""); File.Delete(probe); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            throw new LauncherException("Il launcher non può scrivere in questa cartella: scegli un'altra installazione o installa da zero.", error);
+        }
+        var previous = Root;
+        Root = Path.GetFullPath(root);
+        try
+        {
+            if (manifest.Files is { } approvedFiles && KeyFiles.All(name =>
+                    approvedFiles.TryGetValue(name, out var expected) && File.Exists(Path.Combine(ClientDir, name)) &&
+                    HashFile(Path.Combine(ClientDir, name)) == expected))
+            {
+                var files = KeyFiles.ToDictionary(name => name, name => approvedFiles[name]);
+                File.WriteAllText(StateFile, JsonSerializer.Serialize(new InstalledClient(manifest.Version, manifest.BuildId, manifest.Sha256, files)));
+                SaveRoot();
+                return true;
+            }
+            await InstallAsync(http, manifest, null, progress, cancel);
+            return false;
+        }
+        catch (Exception)
+        {
+            Root = previous;
+            throw;
+        }
+    }
+
     private static string LoadRoot()
     {
         try
