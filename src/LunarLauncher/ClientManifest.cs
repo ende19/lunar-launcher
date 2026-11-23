@@ -10,11 +10,13 @@ namespace LunarLauncher;
 /// it is exactly the approved build. The same file may also carry the game server address, so staff can move
 /// the server without a new launcher release; without it, the address built into the launcher is used.
 /// Files, when present, holds the SHA-256 of the approved build's key files, so an ArcaneMP install the player
-/// links can be recognised as that build without downloading it again.
+/// links can be recognised as that build without downloading it again. Launcher, when present, announces the
+/// latest launcher release so the launcher can update itself (an invalid entry is ignored, not fatal).
 /// </summary>
 internal sealed record ClientManifest(
     string Version, string ModId, string BuildId, string ClientFolder, string Sha256, long Size,
-    string? ServerHost = null, int? ServerPort = null, Dictionary<string, string>? Files = null)
+    string? ServerHost = null, int? ServerPort = null, Dictionary<string, string>? Files = null,
+    LauncherRelease? Launcher = null)
 {
     public const string Url = "https://raw.githubusercontent.com/ende19/lunar-launcher/main/client-version.json";
 
@@ -57,6 +59,6 @@ internal sealed record ClientManifest(
             (ServerHost == null || SafeHost.IsMatch(ServerHost)) && ServerPort is null or (>= 1 and <= 65535) &&
             (Files == null || Files.Count <= 16 && Files.All(file => SafeFolder.IsMatch(file.Key) && Hex64.IsMatch(file.Value ?? "")));
         if (!valid) throw new LauncherException("La versione approvata di ArcaneMP non è valida.");
-        return this;
+        return Launcher is { } launcher && !launcher.IsValid() ? this with { Launcher = null } : this;
     }
 }

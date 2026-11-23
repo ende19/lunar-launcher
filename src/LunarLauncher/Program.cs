@@ -6,6 +6,7 @@ internal static class Program
     private static void Main()
     {
         ApplicationConfiguration.Initialize();
+        LauncherUpdater.CleanUp();
         LauncherConfig config;
         try { config = LauncherConfig.Load(); }
         catch (LauncherException error)
@@ -13,6 +14,7 @@ internal static class Program
             MessageBox.Show(error.Message, "Lunar Roleplay", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
-        Application.Run(new MainForm(config));
+        var updated = Environment.GetCommandLineArgs().Contains(LauncherUpdater.UpdatedArgument);
+        Application.Run(new MainForm(config, updated));
     }
 }
