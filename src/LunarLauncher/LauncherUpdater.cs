@@ -5,15 +5,15 @@ namespace LunarLauncher;
 
 /// <summary>
 /// A launcher release announced in client-version.json ("launcher"). The exe must come from this repository's
-/// GitHub releases and match the SHA-256 and size; MinVersion, when set, is the oldest launcher allowed to play.
+/// GitHub releases and match the SHA-256 and size.
 /// </summary>
-internal sealed record LauncherRelease(string Version, string Url, string Sha256, long Size, string? MinVersion = null)
+internal sealed record LauncherRelease(string Version, string Url, string Sha256, long Size)
 {
     public const string ReleasePrefix = "https://github.com/ende19/lunar-launcher/releases/download/";
     public const string ReleasesPage = "https://github.com/ende19/lunar-launcher/releases/latest";
 
     public bool IsValid() =>
-        LauncherUpdater.Parse(Version) != null && (MinVersion == null || LauncherUpdater.Parse(MinVersion) != null) &&
+        LauncherUpdater.Parse(Version) != null &&
         Uri.TryCreate(Url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps &&
         Url.StartsWith(ReleasePrefix, StringComparison.Ordinal) && !Url.Contains("..") &&
         Sha256 is { Length: 64 } && Sha256.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f') &&
@@ -44,8 +44,6 @@ internal static class LauncherUpdater
     }
 
     public static bool IsNewer(LauncherRelease release) => Parse(release.Version) is { } version && version > Current;
-
-    public static bool IsBelowMinimum(LauncherRelease release) => Parse(release.MinVersion) is { } min && Current < min;
 
     /// <summary>Removes what an earlier update left behind; the old process may still be closing, so it retries.</summary>
     public static void CleanUp()
@@ -83,13 +81,18 @@ internal static class LauncherUpdater
         }
         try
         {
-            Process.Start(new ProcessStartInfo(ExePath) { Arguments = UpdatedArgument, UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(ExePath)! });
+            using var started = Process.Start(new ProcessStartInfo(ExePath) { Arguments = UpdatedArgument, UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(ExePath)! });
+            // This launcher is in the foreground and about to close: let the new one take the foreground.
+            if (started != null) AllowSetForegroundWindow(started.Id);
         }
         catch (Exception error)
         {
             throw new LauncherException("Launcher aggiornato, ma non è stato possibile riavviarlo: aprilo di nuovo.", error);
         }
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool AllowSetForegroundWindow(int processId);
 
     public static void OpenReleasesPage()
     {
