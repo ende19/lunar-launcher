@@ -600,7 +600,7 @@ internal sealed class MainForm : FramelessForm
         {
             throw new LauncherException("Impossibile avviare il gioco: " + error.Message, error);
         }
-        notice = "Avvio del gioco…";
+        notice = "In esecuzione";
         WindowState = FormWindowState.Minimized;
     }
 
